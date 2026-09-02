@@ -17,7 +17,8 @@ const io = new Server(server, {
 });
 
 const APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
-const APP_CERTIFICATE = "0cbf0662ae14467c87c7068593ec2b99";
+// Sử dụng biến môi trường trên Render hoặc fallback về chuỗi chính xác của bạn
+const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
 
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
