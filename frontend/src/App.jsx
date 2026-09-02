@@ -28,7 +28,28 @@ const AgoraVideoPlayer = ({ videoTrack, audioTrack, isLocal }) => {
     };
   }, [videoTrack, audioTrack, isLocal]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+  const handleForcePlay = () => {
+    try {
+      if (videoTrack) videoTrack.play(containerRef.current);
+      if (!isLocal && audioTrack) audioTrack.play();
+      alert("Đã kích hoạt thành công luồng media!");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', objectFit: 'cover' }}>
+      {!isLocal && (
+        <button 
+          onClick={handleForcePlay} 
+          style={{ position: 'absolute', bottom: '5px', right: '5px', zIndex: 5, fontSize: '10px', padding: '3px 8px', background: '#eab308', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', color: '#000' }}
+        >
+          ▶ Bật tiếng
+        </button>
+      )}
+    </div>
+  );
 };
 
 export default function App() {
@@ -299,6 +320,7 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <button onClick={() => window.location.reload()} style={{ padding: '8px 12px', borderRadius: '8px', fontWeight: 'bold', border: 'none', backgroundColor: '#eab308', color: '#000', cursor: 'pointer' }}>🔊 Tải lại để bật Cam/Mic</button>
           <button onClick={copyInviteLink} style={{ padding: '8px 12px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid #3b82f6', backgroundColor: '#1e3a8a', color: '#93c5fd', cursor: 'pointer' }}>📋 Copy Link</button>
           <button onClick={toggleMic} style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: isMicOn ? '#059669' : '#dc2626', color: '#fff' }}>{isMicOn ? '🎤 Mic: Bật' : '🎙️ Mic: Tắt'}</button>
           <button onClick={toggleVideo} style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: isVideoOn ? '#059669' : '#dc2626', color: '#fff' }}>{isVideoOn ? '📹 Cam: Bật' : '📷 Cam: Tắt'}</button>
