@@ -1,0 +1,20 @@
+@keyframes animeSlash {
+  0% { transform: translate(-100%, 100%) rotate(-45deg); opacity: 0; width: 0%; }
+  30% { opacity: 1; width: 150%; }
+  70% { opacity: 1; transform: translate(100%, -100%) rotate(-45deg); width: 150%; filter: drop-shadow(0 0 15px #ff3333); }
+  100% { transform: translate(100%, -100%) rotate(-45deg); opacity: 0; width: 0%; }
+}
+.slash-effect {
+  position: absolute; top: 50%; left: -50%; height: 8px;
+  background: linear-gradient(90deg, transparent, #ffffff, #ff3333, transparent);
+  box-shadow: 0 0 20px #ff0000; z-index: 50; pointer-events: none;
+  animation: animeSlash 0.8s ease-in-out forwards;
+}
+@keyframes screenShake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-5px, 5px); }
+  40% { transform: translate(5px, -5px); }
+  60% { transform: translate(-5px, -5px); }
+  80% { transform: translate(5px, 5px); }
+}
+.card-shake { animation: screenShake 0.4s ease-in-out 0.2s; }
