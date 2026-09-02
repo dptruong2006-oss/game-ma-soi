@@ -66,7 +66,7 @@ export default function App() {
   const [roomState, setRoomState] = useState({
     phase: 'LOBBY',
     players: {},
-    settings: { wolfCount: 2 }
+    settings: { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1 }
   });
 
   const [localTracks, setLocalTracks] = useState({ audioTrack: null, videoTrack: null });
@@ -108,8 +108,8 @@ export default function App() {
     if (!playerName.trim()) return alert("Vui lòng nhập tên!");
     if (!selectedSeat) return alert("Vui lòng chọn 1 ghế!");
 
-    if (isHost && existingHost && existingHost.id !== socket.id) {
-      return alert("Phòng này đã có Quản Trò rồi!");
+    if (isHost && existingHost) {
+      return alert("Phòng này đã có Quản Trò!");
     }
 
     setHasJoined(true);
@@ -139,7 +139,6 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // Xử lý kết nối Agora và đồng bộ thành viên vào phòng
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
@@ -272,9 +271,14 @@ export default function App() {
           </button>
 
           <div style={{ backgroundColor: '#1e293b', padding: '12px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Vai trò Quản Trò?</span>
-            <button type="button" disabled={!!existingHost && !isHost} onClick={() => setIsHost(!isHost)} style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', backgroundColor: isHost ? '#d97706' : '#334155', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>
-              {isHost ? '👑 Quản Trò' : (existingHost ? '🔒 Đã có Host' : '👤 Người Chơi')}
+            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Vai trò Quản Trò (Chỉ 1 người duy nhất):</span>
+            <button 
+              type="button" 
+              disabled={!!existingHost} 
+              onClick={() => setIsHost(!isHost)} 
+              style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', backgroundColor: isHost ? '#d97706' : (existingHost ? '#334155' : '#2563eb'), color: '#fff', fontWeight: 'bold', cursor: existingHost ? 'not-allowed' : 'pointer' }}
+            >
+              {isHost ? '👑 Quản Trò (Đã chọn)' : (existingHost ? '🔒 Đã có Quản Trò' : '🎯 Nhận làm Quản Trò')}
             </button>
           </div>
 
@@ -303,6 +307,7 @@ export default function App() {
   }
 
   const myPlayerInfo = roomState.players[socket.id];
+  const settings = roomState.settings || { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1 };
 
   return (
     <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', boxSizing: 'border-box' }}>
@@ -323,30 +328,63 @@ export default function App() {
         </div>
       </header>
 
-      {/* Bảng điều khiển dành riêng cho Quản Trò (Host) */}
+      {/* Bảng điều khiển dành riêng cho Quản Trò (Host) độc nhất */}
       {isHost && (
-        <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #d97706', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
-          <div>
-            <h3 style={{ color: '#f59e0b', margin: '0 0 8px 0' }}>👑 Bảng Điều Khiển Quản Trò</h3>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', color: '#cbd5e1' }}>Số lượng Sói trận này:</span>
+        <div style={{ backgroundColor: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #d97706', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <h3 style={{ color: '#f59e0b', margin: 0 }}>👑 Bảng Điều Khiển Quản Trò (Tùy chỉnh số lượng chức năng)</h3>
+          
+          <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#cbd5e1' }}>🐺 Sói:</span>
               <select 
-                value={roomState.settings?.wolfCount || 2}
+                value={settings.wolfCount}
                 onChange={(e) => socket.emit('update_settings', { roomId, settings: { wolfCount: parseInt(e.target.value) } })}
-                style={{ padding: '6px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569' }}
+                style={{ padding: '4px 8px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569' }}
               >
-                <option value={1}>1 Sói</option>
-                <option value={2}>2 Sói</option>
-                <option value={3}>3 Sói</option>
+                {[...Array(6)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
               </select>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#cbd5e1' }}>🛡️ Bảo Vệ:</span>
+              <select 
+                value={settings.guardCount}
+                onChange={(e) => socket.emit('update_settings', { roomId, settings: { guardCount: parseInt(e.target.value) } })}
+                style={{ padding: '4px 8px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569' }}
+              >
+                {[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#cbd5e1' }}>🔮 Tiên Tri:</span>
+              <select 
+                value={settings.seerCount}
+                onChange={(e) => socket.emit('update_settings', { roomId, settings: { seerCount: parseInt(e.target.value) } })}
+                style={{ padding: '4px 8px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569' }}
+              >
+                {[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#cbd5e1' }}>🧪 Phù Thủy:</span>
+              <select 
+                value={settings.witchCount}
+                onChange={(e) => socket.emit('update_settings', { roomId, settings: { witchCount: parseInt(e.target.value) } })}
+                style={{ padding: '4px 8px', borderRadius: '6px', backgroundColor: '#0f172a', color: '#fff', border: '1px solid #475569' }}
+              >
+                {[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}
+              </select>
+            </div>
+
+            <button 
+              onClick={() => socket.emit('start_game', { roomId })}
+              style={{ marginLeft: 'auto', padding: '8px 16px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
+            >
+              🚀 Bắt Đầu Ván Đấu & Random Vai Trò
+            </button>
           </div>
-          <button 
-            onClick={() => socket.emit('start_game', { roomId })}
-            style={{ padding: '10px 20px', backgroundColor: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}
-          >
-            🚀 Bắt Đầu Ván Đấu & Random Vai Trò
-          </button>
         </div>
       )}
 
@@ -383,7 +421,6 @@ export default function App() {
           return (
             <div key={seatNum} style={{ position: 'relative', borderRadius: '16px', backgroundColor: '#0f172a', border: isMe ? '2px solid #a855f7' : '2px solid #334155', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               
-              {/* Chỉ Quản trò mới nhìn thấy các hiệu ứng gán trạng thái */}
               {occupant.statusEffect && isHost && (
                 <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#dc2626', color: '#ffffff', fontSize: '10px', padding: '2px 6px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 10 }}>
                   {occupant.statusEffect === 'WOLF_TARGET' && '🐺 Sói nhắm'}
@@ -425,7 +462,6 @@ export default function App() {
                   {occupant.name} {isMe ? "(Bạn)" : ""}
                 </span>
 
-                {/* Nút hành động ban đêm cho Quản trò hoặc các chức năng đặc biệt */}
                 {isHost && roomState.phase === 'NIGHT' && (
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button title="Bảo vệ" onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '10px', padding: '2px 5px', cursor: 'pointer', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px' }}>🛡️</button>

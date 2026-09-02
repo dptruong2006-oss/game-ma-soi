@@ -60,24 +60,36 @@ io.on('connection', (socket) => {
         phase: 'LOBBY',
         players: {},
         settings: {
-          wolfCount: 2
+          wolfCount: 2,
+          guardCount: 1,
+          seerCount: 1,
+          witchCount: 1
         }
       };
     }
 
-    rooms[roomId].players[socket.id] = {
+    const room = rooms[roomId];
+    const existingHost = Object.values(room.players).find(p => p.isHost);
+
+    // Kiểm tra bảo mật: Nếu phòng đã có Host mà người mới cố tình nhận làm Host thì ép về false
+    let finalIsHost = !!isHost;
+    if (finalIsHost && existingHost && existingHost.id !== socket.id) {
+      finalIsHost = false; 
+    }
+
+    room.players[socket.id] = {
       id: socket.id,
       name,
       seat,
-      isHost: !!isHost,
+      isHost: finalIsHost,
       role: null,
       statusEffect: null
     };
 
-    io.to(roomId).emit('room_state_update', rooms[roomId]);
+    io.to(roomId).emit('room_state_update', room);
   });
 
-  // Quản trỏ thay đổi cài đặt phòng (ví dụ số lượng sói)
+  // Quản trò thay đổi cài đặt số lượng các chức năng
   socket.on('update_settings', ({ roomId, settings }) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
@@ -86,20 +98,26 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Bắt đầu game: Random chức năng cho tất cả thành viên trong phòng
+  // Bắt đầu game: Random chức năng theo đúng định mức cài đặt của Host
   socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
 
     const playerIds = Object.keys(room.players);
     const totalPlayers = playerIds.length;
-    const wolfCount = room.settings?.wolfCount || 2;
+    
+    const { wolfCount = 2, guardCount = 1, seerCount = 1, witchCount = 1 } = room.settings;
 
     let rolesPool = [];
     for (let i = 0; i < wolfCount; i++) rolesPool.push('WOLF');
-    if (totalPlayers > wolfCount) rolesPool.push('GUARD');
-    if (totalPlayers > wolfCount + 1) rolesPool.push('SEER');
-    if (totalPlayers > wolfCount + 2) rolesPool.push('WITCH');
+    for (let i = 0; i < guardCount; i++) rolesPool.push('GUARD');
+    for (let i = 0; i < seerCount; i++) rolesPool.push('SEER');
+    for (let i = 0; i < witchCount; i++) rolesPool.push('WITCH');
+
+    // Nếu tổng chức năng lớn hơn số người chơi, cắt bớt hoặc cân đối, nếu thiếu thì bù Dân làng
+    if (rolesPool.length > totalPlayers) {
+      rolesPool = rolesPool.slice(0, totalPlayers);
+    }
 
     while (rolesPool.length < totalPlayers) {
       rolesPool.push('VILLAGER');
@@ -117,7 +135,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Xử lý các hiệu ứng kỹ năng ban đêm
+  // Xử lý hiệu ứng kỹ năng ban đêm
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -160,6 +178,7 @@ io.on('connection', (socket) => {
         if (Object.keys(rooms[roomId].players).length === 0) {
           delete rooms[roomId];
         } else {
+          // Nếu Host thoát, tự động nhường quyền Host cho người chơi đầu tiên còn lại (nếu muốn) hoặc giữ nguyên
           io.to(roomId).emit('room_state_update', rooms[roomId]);
         }
         break;
