@@ -16,18 +16,15 @@ const io = new Server(server, {
   }
 });
 
-// Điền đúng Agora App ID và App Certificate của bạn vào đây
 const APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
-const APP_CERTIFICATE = "0cbf0662ae14467c87c7068593ec2b99"; // Nhớ thay mã Certificate chính xác từ Agora Console nếu cần
+const APP_CERTIFICATE = "0cbf0662ae14467c87c7068593ec2b99";
 
-// API cấp token Agora cho client
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
   if (!channelName) {
     return res.status(400).json({ error: 'channelName is required' });
   }
 
-  // Sử dụng uid dạng số hoặc 0 cho việc cấp quyền cơ bản
   const uid = 0; 
   const role = RtcRole.PUBLISHER;
   const expirationTimeInSeconds = 3600;
