@@ -76,7 +76,6 @@ export default function App() {
     if (!playerName.trim()) return alert("Vui lòng nhập tên!");
     if (!selectedSeat) return alert("Vui lòng bấm chọn 1 ghế!");
 
-    // Nếu đã có người làm Host mà bản thân cố tình chọn Host thì chặn
     if (isHost && existingHost && existingHost.id !== socket.id) {
       return alert("Phòng này đã có Quản Trò rồi!");
     }
@@ -108,7 +107,6 @@ export default function App() {
 
   // Nút quay lại màn hình chọn ghế
   const handleLeaveRoom = () => {
-    // Dừng camera/mic trước khi thoát
     localTracks.audioTrack?.close();
     localTracks.videoTrack?.close();
     agoraClient.leave();
@@ -149,7 +147,7 @@ export default function App() {
           setLocalTracks({ audioTrack, videoTrack });
         }
 
-        await agoraClient.join(AGORA_APP_ID, roomId, 007eJxTYJCyllNna5y8MnOxlnLE14d3xO+9UTsdvVthZymDtv7Hn7kKDGkWSZbJyebmaWlGxiYWRsZJZqkmZhamhkbmqUlpJuamDfemZzUEMjJI3ZBgZWSAQBCfmcHQyJiBAQDGqB1B, socket.id || playerName);
+        await agoraClient.join(AGORA_APP_ID, roomId, null, socket.id || playerName);
         
         if (isMounted && audioTrack && videoTrack) {
           await agoraClient.publish([audioTrack, videoTrack]);
