@@ -200,7 +200,7 @@ export default function App() {
       } catch (e) {
         console.error("Lỗi bật/tắt Mic:", e);
       }
-    } else if (!isMicOn) {
+    } else {
       try {
         const newAudio = await AgoraRTC.createMicrophoneAudioTrack();
         await agoraClient.publish(newAudio);
@@ -221,7 +221,7 @@ export default function App() {
       } catch (e) {
         console.error("Lỗi bật/tắt Cam:", e);
       }
-    } else if (!isVideoOn) {
+    } else {
       try {
         const newVideo = await AgoraRTC.createCameraVideoTrack();
         await agoraClient.publish(newVideo);
