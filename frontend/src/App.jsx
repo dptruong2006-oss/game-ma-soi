@@ -13,14 +13,18 @@ const AgoraVideoPlayer = ({ videoTrack, audioTrack, isLocal }) => {
     if (!containerRef.current || !videoTrack) return;
     try {
       videoTrack.play(containerRef.current);
-      if (!isLocal && audioTrack) audioTrack.play();
+      if (!isLocal && audioTrack) {
+        audioTrack.play();
+      }
     } catch (e) {
       console.warn("Lỗi phát stream:", e);
     }
     return () => {
       try {
-        videoTrack?.stop();
-        audioTrack?.stop();
+        // Chỉ stop, không close track ở đây để tránh bị hủy hẳn khi re-render
+        if (videoTrack && videoTrack.isPlaying) {
+          videoTrack.stop();
+        }
       } catch (e) {}
     };
   }, [videoTrack, audioTrack, isLocal]);
@@ -92,9 +96,13 @@ export default function App() {
   };
 
   const handleLeaveRoom = () => {
-    localTracks.audioTrack?.close();
-    localTracks.videoTrack?.close();
-    agoraClient.leave();
+    try {
+      localTracks.audioTrack?.close();
+      localTracks.videoTrack?.close();
+      agoraClient.leave();
+    } catch (e) {}
+    setLocalTracks({ audioTrack: null, videoTrack: null });
+    setRemoteUsers([]);
     setHasJoined(false);
     setIsHost(false);
     setSelectedSeat(null);
@@ -105,12 +113,14 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
+  // Quản lý kết nối Agora khi đã vào phòng
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
 
     const initAgora = async () => {
       try {
+        // Xử lý sự kiện user khác bật cam/mic
         agoraClient.on('user-published', async (user, mediaType) => {
           await agoraClient.subscribe(user, mediaType);
           if (isMounted) {
@@ -122,29 +132,45 @@ export default function App() {
           }
         });
 
-        agoraClient.on('user-unpublished', (user) => {
-          if (isMounted) setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
+        agoraClient.on('user-unpublished', (user, mediaType) => {
+          if (isMounted) {
+            setRemoteUsers((prev) => prev.map(u => {
+              if (u.uid === user.uid) {
+                return { ...u };
+              }
+              return u;
+            }));
+          }
+        });
+
+        agoraClient.on('user-left', (user) => {
+          if (isMounted) {
+            setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
+          }
         });
 
         const res = await fetch(`https://game-ma-soi.onrender.com/api/agora-token?channelName=${roomId}`);
         const data = await res.json();
 
+        // Join channel Agora
         await agoraClient.join(AGORA_APP_ID, roomId, data.token, socket.id);
 
         let audioTrack = null;
         let videoTrack = null;
 
+        // Tạo track audio an toàn
         try {
           audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
         } catch (err) {
-          console.warn("Không thể bật Micro:", err);
+          console.warn("Không thể bật Micro (Có thể do chưa cấp quyền):", err);
           setIsMicOn(false);
         }
 
+        // Tạo track video an toàn
         try {
           videoTrack = await AgoraRTC.createCameraVideoTrack();
         } catch (err) {
-          console.warn("Không thể bật Camera:", err);
+          console.warn("Không thể bật Camera (Có thể do thiết bị bận hoặc chưa cấp quyền):", err);
           setIsVideoOn(false);
         }
 
@@ -160,10 +186,12 @@ export default function App() {
         }
       } catch (err) {
         console.error("Lỗi kết nối Agora:", err);
+        alert("Không thể kết nối vào hệ thống Camera/Mic. Vui lòng kiểm tra quyền truy cập trình duyệt!");
       }
     };
 
     initAgora();
+
     return () => {
       isMounted = false;
     };
@@ -171,17 +199,45 @@ export default function App() {
 
   const toggleMic = async () => {
     if (localTracks.audioTrack) {
-      const newState = !isMicOn;
-      await localTracks.audioTrack.setEnabled(newState);
-      setIsMicOn(newState);
+      try {
+        const newState = !isMicOn;
+        await localTracks.audioTrack.setEnabled(newState);
+        setIsMicOn(newState);
+      } catch (e) {
+        console.error("Lỗi bật/tắt Mic:", e);
+      }
+    } else if (!isMicOn) {
+      // Trường hợp trước đó bị lỗi khởi tạo, thử tạo lại track
+      try {
+        const newAudio = await AgoraRTC.createMicrophoneAudioTrack();
+        await agoraClient.publish(newAudio);
+        setLocalTracks(prev => ({ ...prev, audioTrack: newAudio }));
+        setIsMicOn(true);
+      } catch (e) {
+        alert("Không thể bật lại Micro. Hãy kiểm tra cài đặt trình duyệt!");
+      }
     }
   };
 
   const toggleVideo = async () => {
     if (localTracks.videoTrack) {
-      const newState = !isVideoOn;
-      await localTracks.videoTrack.setEnabled(newState);
-      setIsVideoOn(newState);
+      try {
+        const newState = !isVideoOn;
+        await localTracks.videoTrack.setEnabled(newState);
+        setIsVideoOn(newState);
+      } catch (e) {
+        console.error("Lỗi bật/tắt Cam:", e);
+      }
+    } else if (!isVideoOn) {
+      // Trường hợp trước đó bị lỗi khởi tạo, thử tạo lại track
+      try {
+        const newVideo = await AgoraRTC.createCameraVideoTrack();
+        await agoraClient.publish(newVideo);
+        setLocalTracks(prev => ({ ...prev, videoTrack: newVideo }));
+        setIsVideoOn(true);
+      } catch (e) {
+        alert("Không thể bật lại Camera. Hãy kiểm tra xem thiết bị có đang bị ứng dụng khác chiếm quyền không!");
+      }
     }
   };
 
@@ -301,7 +357,7 @@ export default function App() {
                     </div>
                   )
                 ) : (
-                  remoteUser ? (
+                  remoteUser && remoteUser.videoTrack ? (
                     <AgoraVideoPlayer videoTrack={remoteUser.videoTrack} audioTrack={remoteUser.audioTrack} isLocal={false} />
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
