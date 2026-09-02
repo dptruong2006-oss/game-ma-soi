@@ -39,7 +39,12 @@ export default function App() {
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [isHost, setIsHost] = useState(false);
 
-  const [roomId, setRoomId] = useState('123');
+  // Tự động đọc Mã Phòng từ URL (nếu có người bấm link chia sẻ)
+  const [roomId, setRoomId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room') || '123';
+  });
+
   const [roomState, setRoomState] = useState({
     phase: 'Đang chờ tập hợp người chơi',
     players: {}
@@ -49,6 +54,15 @@ export default function App() {
   const [remoteUsers, setRemoteUsers] = useState([]);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
+
+  // Cập nhật URL trình duyệt khi mã phòng thay đổi để tiện copy link
+  useEffect(() => {
+    const url = new URL(window.location);
+    if (roomId) {
+      url.searchParams.set('room', roomId);
+      window.history.replaceState({}, '', url);
+    }
+  }, [roomId]);
 
   // Lắng nghe dữ liệu phòng từ Server
   useEffect(() => {
@@ -63,11 +77,8 @@ export default function App() {
     };
   }, []);
 
-  // Kiểm tra xem phòng đã có ai làm Quản trò chưa
   const playerList = Object.values(roomState.players || {});
   const existingHost = playerList.find(p => p.isHost === true);
-
-  // Danh sách các ghế đã bị chiếm bởi người khác
   const takenSeats = playerList.map(p => p.seat);
 
   // Xử lý vào game
@@ -105,7 +116,6 @@ export default function App() {
     });
   };
 
-  // Nút quay lại màn hình chọn ghế
   const handleLeaveRoom = () => {
     localTracks.audioTrack?.close();
     localTracks.videoTrack?.close();
@@ -116,7 +126,13 @@ export default function App() {
     setSelectedSeat(null);
   };
 
-  // Khởi tạo Camera/Mic tự động
+  // Nút sao chép link mời bạn bè vào chung phòng
+  const copyInviteLink = () => {
+    navigator.clipboard.writeText(window.location.href);
+    alert("Đã sao chép link phòng! Gửi link này cho bạn bè để cùng vào phòng: " + roomId);
+  };
+
+  // Khởi tạo Camera/Mic
   useEffect(() => {
     if (!hasJoined) return;
 
@@ -182,29 +198,33 @@ export default function App() {
     socket.emit('claim_host', { roomId, socketId: socket.id });
   };
 
-  // --- MÀN HÌNH 1: SƠ ĐỒ 20 GHẾ ĐỂ CHỌN ---
+  // --- MÀN HÌNH 1: SƠ ĐỒ GHẾ & TẠO/ĐỔI PHÒNG ---
   if (!hasJoined) {
     return (
       <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <h1 style={{ color: '#c084fc', marginBottom: '8px' }}>SƠ ĐỒ CHỌN GHẾ THAM GIA</h1>
-        <p style={{ color: '#94a3b8', marginBottom: '24px' }}>Nhập tên, chọn 1 ghế trống rồi bấm Vào Bàn Chơi</p>
+        <p style={{ color: '#94a3b8', marginBottom: '24px' }}>Nhập tên, chọn ghế và bấm copy link mời bạn bè vào chung phòng</p>
 
         <form onSubmit={handleJoinGame} style={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', padding: '24px', borderRadius: '16px', width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: '200px' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', color: '#94a3b8' }}>Tên Của Bạn:</label>
               <input type="text" placeholder="Nhập tên..." value={playerName} onChange={(e) => setPlayerName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#020617', color: '#fff', boxSizing: 'border-box' }} required />
             </div>
 
-            <div style={{ width: '140px' }}>
+            <div style={{ width: '160px' }}>
               <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', color: '#94a3b8' }}>Mã Phòng:</label>
               <input type="text" value={roomId} onChange={(e) => setRoomId(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#020617', color: '#fff', boxSizing: 'border-box' }} required />
             </div>
           </div>
 
+          <button type="button" onClick={copyInviteLink} style={{ padding: '10px', borderRadius: '8px', border: '1px solid #3b82f6', backgroundColor: '#1e3a8a', color: '#93c5fd', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            📋 Sao chép Link Mời Phòng Này
+          </button>
+
           <div style={{ backgroundColor: '#1e293b', padding: '12px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Bạn muốn làm Quản trò? {existingHost ? <span style={{ color: '#ef4444', fontSize: '12px' }}>(Đã có người nhận)</span> : ''}</span>
+            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Bạn muốn làm Quản trò?</span>
             <button 
               type="button" 
               disabled={!!existingHost && !isHost}
@@ -247,7 +267,7 @@ export default function App() {
                       cursor: isTaken ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    {isTaken ? `Ghế ${seatNum} (Đã có người)` : `Ghế ${seatNum}`}
+                    {isTaken ? `Ghế ${seatNum} (Đã có)` : `Ghế ${seatNum}`}
                   </button>
                 );
               })}
@@ -262,7 +282,7 @@ export default function App() {
     );
   }
 
-  // --- MÀN HÌNH 2: BÀN CHƠI 20 GHẾ ---
+  // --- MÀN HÌNH 2: BÀN CHƠI 20 GHẾ TRỰC TUYẾN ---
   return (
     <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', boxSizing: 'border-box' }}>
       
@@ -275,12 +295,16 @@ export default function App() {
           <div>
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#c084fc' }}>PHÒNG: {roomId}</h1>
             <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
-              Số người hiện tại: <span style={{ color: '#facc15', fontWeight: 'bold' }}>{playerList.length} người</span>
+              Số người trong phòng: <span style={{ color: '#facc15', fontWeight: 'bold' }}>{playerList.length} người</span>
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <button onClick={copyInviteLink} style={{ padding: '8px 12px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid #3b82f6', backgroundColor: '#1e3a8a', color: '#93c5fd', cursor: 'pointer' }}>
+            📋 Copy Link Mời
+          </button>
+
           <button onClick={toggleMic} style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: 'bold', border: 'none', cursor: 'pointer', backgroundColor: isMicOn ? '#059669' : '#dc2626', color: '#fff' }}>
             {isMicOn ? '🎤 Mic: Bật' : '🎙️ Mic: Tắt'}
           </button>
