@@ -63,14 +63,23 @@ export default function App() {
     };
   }, []);
 
+  // Kiểm tra xem phòng đã có ai làm Quản trò chưa
+  const playerList = Object.values(roomState.players || {});
+  const existingHost = playerList.find(p => p.isHost === true);
+
   // Danh sách các ghế đã bị chiếm bởi người khác
-  const takenSeats = Object.values(roomState.players || {}).map(p => p.seat);
+  const takenSeats = playerList.map(p => p.seat);
 
   // Xử lý vào game
   const handleJoinGame = (e) => {
     e.preventDefault();
     if (!playerName.trim()) return alert("Vui lòng nhập tên!");
     if (!selectedSeat) return alert("Vui lòng bấm chọn 1 ghế!");
+
+    // Nếu đã có người làm Host mà bản thân cố tình chọn Host thì chặn
+    if (isHost && existingHost && existingHost.id !== socket.id) {
+      return alert("Phòng này đã có Quản Trò rồi!");
+    }
 
     const myPlayerData = {
       id: socket.id || 'local_user',
@@ -95,6 +104,18 @@ export default function App() {
       seat: selectedSeat,
       isHost: isHost
     });
+  };
+
+  // Nút quay lại màn hình chọn ghế
+  const handleLeaveRoom = () => {
+    // Dừng camera/mic trước khi thoát
+    localTracks.audioTrack?.close();
+    localTracks.videoTrack?.close();
+    agoraClient.leave();
+
+    setHasJoined(false);
+    setIsHost(false);
+    setSelectedSeat(null);
   };
 
   // Khởi tạo Camera/Mic tự động
@@ -122,7 +143,6 @@ export default function App() {
           if (isMounted) setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
         });
 
-        // Tạo Cam/Mic trước khi join phòng
         const [audioTrack, videoTrack] = await AgoraRTC.createMicrophoneAndCameraTracks();
 
         if (isMounted) {
@@ -157,6 +177,9 @@ export default function App() {
   };
 
   const claimHostRole = () => {
+    if (existingHost) {
+      return alert("Phòng này đã có người làm Quản Trò rồi!");
+    }
     setIsHost(true);
     socket.emit('claim_host', { roomId, socketId: socket.id });
   };
@@ -183,9 +206,22 @@ export default function App() {
           </div>
 
           <div style={{ backgroundColor: '#1e293b', padding: '12px 16px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Bạn muốn làm Quản trò?</span>
-            <button type="button" onClick={() => setIsHost(!isHost)} style={{ padding: '6px 16px', borderRadius: '6px', border: 'none', backgroundColor: isHost ? '#d97706' : '#334155', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>
-              {isHost ? '👑 Đã Chọn: Quản Trò' : '👤 Người Chơi Thường'}
+            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Bạn muốn làm Quản trò? {existingHost ? <span style={{ color: '#ef4444', fontSize: '12px' }}>(Đã có người nhận)</span> : ''}</span>
+            <button 
+              type="button" 
+              disabled={!!existingHost && !isHost}
+              onClick={() => setIsHost(!isHost)} 
+              style={{ 
+                padding: '6px 16px', 
+                borderRadius: '6px', 
+                border: 'none', 
+                backgroundColor: !!existingHost && !isHost ? '#333' : (isHost ? '#d97706' : '#334155'), 
+                color: '#fff', 
+                fontWeight: 'bold', 
+                cursor: !!existingHost && !isHost ? 'not-allowed' : 'pointer' 
+              }}
+            >
+              {isHost ? '👑 Đã Chọn: Quản Trò' : (existingHost ? '🔒 Đã Có Host' : '👤 Người Chơi Thường')}
             </button>
           </div>
 
@@ -229,18 +265,21 @@ export default function App() {
   }
 
   // --- MÀN HÌNH 2: BÀN CHƠI 20 GHẾ ---
-  const playerList = Object.values(roomState.players || {});
-
   return (
     <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', boxSizing: 'border-box' }}>
       
       {/* HEADER TỔNG QUAN */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#c084fc' }}>PHÒNG: {roomId}</h1>
-          <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
-            Số người hiện tại: <span style={{ color: '#facc15', fontWeight: 'bold' }}>{playerList.length} người</span>
-          </p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '12px', border: '1px solid #1e293b', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button onClick={handleLeaveRoom} style={{ padding: '8px 12px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid #475569', backgroundColor: '#1e293b', color: '#f8fafc', cursor: 'pointer' }}>
+            ⬅️ Thoát Ra
+          </button>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#c084fc' }}>PHÒNG: {roomId}</h1>
+            <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>
+              Số người hiện tại: <span style={{ color: '#facc15', fontWeight: 'bold' }}>{playerList.length} người</span>
+            </p>
+          </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -252,13 +291,13 @@ export default function App() {
             {isVideoOn ? '📹 Cam: Bật' : '📷 Cam: Tắt'}
           </button>
 
-          {!isHost ? (
+          {!isHost && !existingHost ? (
             <button onClick={claimHostRole} style={{ padding: '8px 16px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid #d97706', backgroundColor: '#78350f', color: '#fbbf24', cursor: 'pointer' }}>
               👑 Nhận Làm Quản Trò
             </button>
           ) : (
-            <div style={{ backgroundColor: '#78350f', padding: '8px 16px', borderRadius: '8px', border: '1px solid #d97706', color: '#fbbf24', fontWeight: 'bold' }}>
-              👑 VAI TRÒ: QUẢN TRÒ
+            <div style={{ backgroundColor: '#78350f', padding: '8px 16px', borderRadius: '8px', border: '1px solid #d97706', color: '#fbbf24', fontWeight: 'bold', fontSize: '13px' }}>
+              {isHost ? '👑 VAI TRÒ: QUẢN TRÒ' : '🔒 ĐÃ CÓ QUẢN TRÒ'}
             </div>
           )}
         </div>
@@ -273,7 +312,6 @@ export default function App() {
           const isMe = occupant && (occupant.id === socket.id || occupant.name === playerName);
           const remoteUser = occupant ? remoteUsers.find((u) => u.uid === occupant.id) : null;
 
-          // Nếu ghế trống: chỉ hiện ô khung viền đứt
           if (!occupant) {
             return (
               <div 
@@ -298,7 +336,6 @@ export default function App() {
             );
           }
 
-          // Ghế có người
           return (
             <div 
               key={seatNum} 
@@ -325,7 +362,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Khung Camera / Avatar khi có người */}
               <div style={{ position: 'relative', width: '100%', height: '140px', backgroundColor: '#000000', borderRadius: '12px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #1e293b' }}>
                 {isMe ? (
                   localTracks.videoTrack && isVideoOn ? (
