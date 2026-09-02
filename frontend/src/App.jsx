@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
-const socket = io('http://localhost:4000');
+const socket = io('https://game-ma-soi.onrender.com');
 
 // 🔴 AGORA APP ID CỦA BẠN
 const AGORA_APP_ID = "f8b9cc77ff234823b6e4685127ebf475"; 
@@ -129,7 +129,7 @@ export default function App() {
           setLocalTracks({ audioTrack, videoTrack });
         }
 
-        await agoraClient.join(AGORA_APP_ID, roomId, null, socket.id || playerName);
+        await agoraClient.join(AGORA_APP_ID, roomId, 007eJxTYJCyllNna5y8MnOxlnLE14d3xO+9UTsdvVthZymDtv7Hn7kKDGkWSZbJyebmaWlGxiYWRsZJZqkmZhamhkbmqUlpJuamDfemZzUEMjJI3ZBgZWSAQBCfmcHQyJiBAQDGqB1B, socket.id || playerName);
         
         if (isMounted && audioTrack && videoTrack) {
           await agoraClient.publish([audioTrack, videoTrack]);
@@ -285,7 +285,7 @@ export default function App() {
                   display: 'flex', 
                   flexDirection: 'column', 
                   alignItems: 'center',
-                  justify: 'center',
+                  justifyContent: 'center',
                   minHeight: '180px',
                   opacity: 0.4
                 }}
