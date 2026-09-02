@@ -32,7 +32,7 @@ const AgoraVideoPlayer = ({ videoTrack, audioTrack, isLocal }) => {
     try {
       if (videoTrack) videoTrack.play(containerRef.current);
       if (!isLocal && audioTrack) audioTrack.play();
-      alert("Đã kích hoạt thành công luồng media!");
+      alert("Đã bật tiếng thành công!");
     } catch (e) {
       console.error(e);
     }
@@ -115,11 +115,11 @@ export default function App() {
     });
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
     try {
       localTracks.audioTrack?.close();
       localTracks.videoTrack?.close();
-      agoraClient.leave();
+      await agoraClient.leave();
     } catch (e) {}
     setLocalTracks({ audioTrack: null, videoTrack: null });
     setRemoteUsers([]);
@@ -133,18 +133,22 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
+  // Xử lý kết nối Agora và đồng bộ thành viên vào phòng
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
 
     const initAgora = async () => {
       try {
+        // Lắng nghe sự kiện người chơi khác bật cam/mic
         agoraClient.on('user-published', async (user, mediaType) => {
           await agoraClient.subscribe(user, mediaType);
           if (isMounted) {
             setRemoteUsers((prev) => {
               const exists = prev.find((u) => u.uid === user.uid);
-              if (exists) return prev.map((u) => (u.uid === user.uid ? user : u));
+              if (exists) {
+                return prev.map((u) => (u.uid === user.uid ? user : u));
+              }
               return [...prev, user];
             });
           }
@@ -152,12 +156,7 @@ export default function App() {
 
         agoraClient.on('user-unpublished', (user, mediaType) => {
           if (isMounted) {
-            setRemoteUsers((prev) => prev.map(u => {
-              if (u.uid === user.uid) {
-                return { ...u };
-              }
-              return u;
-            }));
+            setRemoteUsers((prev) => prev.map(u => (u.uid === user.uid ? { ...u } : u)));
           }
         });
 
@@ -167,6 +166,7 @@ export default function App() {
           }
         });
 
+        // Lấy token từ Backend và join đúng channel name (roomId)
         const res = await fetch(`https://game-ma-soi.onrender.com/api/agora-token?channelName=${roomId}`);
         const data = await res.json();
 
@@ -209,6 +209,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      agoraClient.removeAllListeners();
     };
   }, [hasJoined, roomId]);
 
