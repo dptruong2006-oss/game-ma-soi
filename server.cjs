@@ -17,7 +17,6 @@ const io = new Server(server, {
 });
 
 const APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
-// Sử dụng biến môi trường trên Render hoặc fallback về chuỗi chính xác của bạn
 const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
 
 app.get('/api/agora-token', (req, res) => {
@@ -59,7 +58,10 @@ io.on('connection', (socket) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
         phase: 'LOBBY',
-        players: {}
+        players: {},
+        settings: {
+          wolfCount: 2
+        }
       };
     }
 
@@ -68,10 +70,86 @@ io.on('connection', (socket) => {
       name,
       seat,
       isHost: !!isHost,
+      role: null,
       statusEffect: null
     };
 
     io.to(roomId).emit('room_state_update', rooms[roomId]);
+  });
+
+  // Quản trỏ thay đổi cài đặt phòng (ví dụ số lượng sói)
+  socket.on('update_settings', ({ roomId, settings }) => {
+    const room = rooms[roomId];
+    if (room && room.players[socket.id]?.isHost) {
+      room.settings = { ...room.settings, ...settings };
+      io.to(roomId).emit('room_state_update', room);
+    }
+  });
+
+  // Bắt đầu game: Random chức năng cho tất cả thành viên trong phòng
+  socket.on('start_game', ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room || !room.players[socket.id]?.isHost) return;
+
+    const playerIds = Object.keys(room.players);
+    const totalPlayers = playerIds.length;
+    const wolfCount = room.settings?.wolfCount || 2;
+
+    let rolesPool = [];
+    for (let i = 0; i < wolfCount; i++) rolesPool.push('WOLF');
+    if (totalPlayers > wolfCount) rolesPool.push('GUARD');
+    if (totalPlayers > wolfCount + 1) rolesPool.push('SEER');
+    if (totalPlayers > wolfCount + 2) rolesPool.push('WITCH');
+
+    while (rolesPool.length < totalPlayers) {
+      rolesPool.push('VILLAGER');
+    }
+
+    // Xáo trộn ngẫu nhiên vai trò
+    rolesPool.sort(() => Math.random() - 0.5);
+
+    playerIds.forEach((id, index) => {
+      room.players[id].role = rolesPool[index];
+      room.players[id].statusEffect = null;
+    });
+
+    room.phase = 'NIGHT';
+    io.to(roomId).emit('room_state_update', room);
+  });
+
+  // Xử lý các hiệu ứng kỹ năng ban đêm
+  socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
+    if (!targetPlayer) return;
+
+    if (actionType === 'GUARD') {
+      Object.values(room.players).forEach(p => {
+        if (p.statusEffect === 'GUARDED') p.statusEffect = null;
+      });
+      targetPlayer.statusEffect = 'GUARDED';
+    } else if (actionType === 'WOLF') {
+      Object.values(room.players).forEach(p => {
+        if (p.statusEffect === 'WOLF_TARGET') p.statusEffect = null;
+      });
+      targetPlayer.statusEffect = 'WOLF_TARGET';
+    } else if (actionType === 'WITCH_SAVE') {
+      if (targetPlayer.statusEffect === 'WOLF_TARGET') {
+        targetPlayer.statusEffect = 'WITCH_SAVED';
+      }
+    } else if (actionType === 'WITCH_KILL') {
+      targetPlayer.statusEffect = 'WITCH_KILLED';
+    } else if (actionType === 'SEER_CHECK') {
+      socket.emit('seer_result', {
+        seat: targetSeat,
+        name: targetPlayer.name,
+        isWolf: targetPlayer.role === 'WOLF'
+      });
+    }
+
+    io.to(roomId).emit('room_state_update', room);
   });
 
   socket.on('disconnect', () => {
