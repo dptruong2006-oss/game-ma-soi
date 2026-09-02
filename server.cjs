@@ -21,9 +21,7 @@ const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133
 
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
-  if (!channelName) {
-    return res.status(400).json({ error: 'channelName is required' });
-  }
+  if (!channelName) return res.status(400).json({ error: 'channelName is required' });
 
   const uid = 0; 
   const role = RtcRole.PUBLISHER;
@@ -32,17 +30,9 @@ app.get('/api/agora-token', (req, res) => {
   const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
   try {
-    const token = RtcTokenBuilder.buildTokenWithUid(
-      APP_ID,
-      APP_CERTIFICATE,
-      channelName,
-      uid,
-      role,
-      privilegeExpiredTs
-    );
+    const token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
     return res.json({ token });
   } catch (err) {
-    console.error("Lỗi tạo Agora Token:", err);
     return res.status(500).json({ error: "Failed to generate token" });
   }
 });
@@ -50,28 +40,26 @@ app.get('/api/agora-token', (req, res) => {
 const rooms = {};
 
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-
   socket.on('join_room', ({ roomId, name, seat, isHost }) => {
     socket.join(roomId);
 
     if (!rooms[roomId]) {
       rooms[roomId] = {
-        phase: 'LOBBY',
+        phase: 'LOBBY', // LOBBY, NIGHT, DAY
         players: {},
+        wolfMessages: [],
         settings: {
           wolfCount: 2,
           guardCount: 1,
           seerCount: 1,
-          witchCount: 1
+          witchCount: 1,
+          villagerCount: 2
         }
       };
     }
 
     const room = rooms[roomId];
     const existingHost = Object.values(room.players).find(p => p.isHost);
-
-    // Kiểm tra bảo mật: Nếu phòng đã có Host mà người mới cố tình nhận làm Host thì ép về false
     let finalIsHost = !!isHost;
     if (finalIsHost && existingHost && existingHost.id !== socket.id) {
       finalIsHost = false; 
@@ -83,13 +71,13 @@ io.on('connection', (socket) => {
       seat,
       isHost: finalIsHost,
       role: null,
-      statusEffect: null
+      statusEffect: null,
+      isAlive: true
     };
 
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Quản trò thay đổi cài đặt số lượng các chức năng
   socket.on('update_settings', ({ roomId, settings }) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
@@ -98,7 +86,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Bắt đầu game: Random chức năng theo đúng định mức cài đặt của Host
   socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
@@ -106,36 +93,57 @@ io.on('connection', (socket) => {
     const playerIds = Object.keys(room.players);
     const totalPlayers = playerIds.length;
     
-    const { wolfCount = 2, guardCount = 1, seerCount = 1, witchCount = 1 } = room.settings;
+    const { wolfCount = 2, guardCount = 1, seerCount = 1, witchCount = 1, villagerCount = 2 } = room.settings;
 
     let rolesPool = [];
     for (let i = 0; i < wolfCount; i++) rolesPool.push('WOLF');
     for (let i = 0; i < guardCount; i++) rolesPool.push('GUARD');
     for (let i = 0; i < seerCount; i++) rolesPool.push('SEER');
     for (let i = 0; i < witchCount; i++) rolesPool.push('WITCH');
+    for (let i = 0; i < villagerCount; i++) rolesPool.push('VILLAGER');
 
-    // Nếu tổng chức năng lớn hơn số người chơi, cắt bớt hoặc cân đối, nếu thiếu thì bù Dân làng
     if (rolesPool.length > totalPlayers) {
       rolesPool = rolesPool.slice(0, totalPlayers);
     }
-
     while (rolesPool.length < totalPlayers) {
       rolesPool.push('VILLAGER');
     }
 
-    // Xáo trộn ngẫu nhiên vai trò
     rolesPool.sort(() => Math.random() - 0.5);
 
     playerIds.forEach((id, index) => {
       room.players[id].role = rolesPool[index];
       room.players[id].statusEffect = null;
+      room.players[id].isAlive = true;
     });
 
     room.phase = 'NIGHT';
+    room.wolfMessages = [];
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Xử lý hiệu ứng kỹ năng ban đêm
+  // Chuyển đổi qua lại giữa Đêm và Ngày do Quản trò bấm
+  socket.on('change_phase', ({ roomId, phase }) => {
+    const room = rooms[roomId];
+    if (room && room.players[socket.id]?.isHost) {
+      room.phase = phase;
+      io.to(roomId).emit('room_state_update', room);
+    }
+  });
+
+  // Chat riêng của Sói ban đêm
+  socket.on('send_wolf_chat', ({ roomId, message }) => {
+    const room = rooms[roomId];
+    if (room && room.players[socket.id]?.role === 'WOLF') {
+      room.wolfMessages.push({
+        sender: room.players[socket.id].name,
+        text: message,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+      io.to(roomId).emit('room_state_update', room);
+    }
+  });
+
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -144,21 +152,11 @@ io.on('connection', (socket) => {
     if (!targetPlayer) return;
 
     if (actionType === 'GUARD') {
-      Object.values(room.players).forEach(p => {
-        if (p.statusEffect === 'GUARDED') p.statusEffect = null;
-      });
+      Object.values(room.players).forEach(p => { if (p.statusEffect === 'GUARDED') p.statusEffect = null; });
       targetPlayer.statusEffect = 'GUARDED';
     } else if (actionType === 'WOLF') {
-      Object.values(room.players).forEach(p => {
-        if (p.statusEffect === 'WOLF_TARGET') p.statusEffect = null;
-      });
+      Object.values(room.players).forEach(p => { if (p.statusEffect === 'WOLF_TARGET') p.statusEffect = null; });
       targetPlayer.statusEffect = 'WOLF_TARGET';
-    } else if (actionType === 'WITCH_SAVE') {
-      if (targetPlayer.statusEffect === 'WOLF_TARGET') {
-        targetPlayer.statusEffect = 'WITCH_SAVED';
-      }
-    } else if (actionType === 'WITCH_KILL') {
-      targetPlayer.statusEffect = 'WITCH_KILLED';
     } else if (actionType === 'SEER_CHECK') {
       socket.emit('seer_result', {
         seat: targetSeat,
@@ -171,14 +169,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
     for (const roomId in rooms) {
       if (rooms[roomId].players[socket.id]) {
         delete rooms[roomId].players[socket.id];
         if (Object.keys(rooms[roomId].players).length === 0) {
           delete rooms[roomId];
         } else {
-          // Nếu Host thoát, tự động nhường quyền Host cho người chơi đầu tiên còn lại (nếu muốn) hoặc giữ nguyên
           io.to(roomId).emit('room_state_update', rooms[roomId]);
         }
         break;
