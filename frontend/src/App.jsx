@@ -21,7 +21,6 @@ const AgoraVideoPlayer = ({ videoTrack, audioTrack, isLocal }) => {
     }
     return () => {
       try {
-        // Chỉ stop, không close track ở đây để tránh bị hủy hẳn khi re-render
         if (videoTrack && videoTrack.isPlaying) {
           videoTrack.stop();
         }
@@ -113,14 +112,12 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // Quản lý kết nối Agora khi đã vào phòng
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
 
     const initAgora = async () => {
       try {
-        // Xử lý sự kiện user khác bật cam/mic
         agoraClient.on('user-published', async (user, mediaType) => {
           await agoraClient.subscribe(user, mediaType);
           if (isMounted) {
@@ -152,25 +149,22 @@ export default function App() {
         const res = await fetch(`https://game-ma-soi.onrender.com/api/agora-token?channelName=${roomId}`);
         const data = await res.json();
 
-        // Join channel Agora
         await agoraClient.join(AGORA_APP_ID, roomId, data.token, socket.id);
 
         let audioTrack = null;
         let videoTrack = null;
 
-        // Tạo track audio an toàn
         try {
           audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
         } catch (err) {
-          console.warn("Không thể bật Micro (Có thể do chưa cấp quyền):", err);
+          console.warn("Không thể bật Micro:", err);
           setIsMicOn(false);
         }
 
-        // Tạo track video an toàn
         try {
           videoTrack = await AgoraRTC.createCameraVideoTrack();
         } catch (err) {
-          console.warn("Không thể bật Camera (Có thể do thiết bị bận hoặc chưa cấp quyền):", err);
+          console.warn("Không thể bật Camera:", err);
           setIsVideoOn(false);
         }
 
@@ -207,14 +201,13 @@ export default function App() {
         console.error("Lỗi bật/tắt Mic:", e);
       }
     } else if (!isMicOn) {
-      // Trường hợp trước đó bị lỗi khởi tạo, thử tạo lại track
       try {
         const newAudio = await AgoraRTC.createMicrophoneAudioTrack();
         await agoraClient.publish(newAudio);
         setLocalTracks(prev => ({ ...prev, audioTrack: newAudio }));
         setIsMicOn(true);
       } catch (e) {
-        alert("Không thể bật lại Micro. Hãy kiểm tra cài đặt trình duyệt!");
+        alert("Không thể bật lại Micro.");
       }
     }
   };
@@ -229,14 +222,13 @@ export default function App() {
         console.error("Lỗi bật/tắt Cam:", e);
       }
     } else if (!isVideoOn) {
-      // Trường hợp trước đó bị lỗi khởi tạo, thử tạo lại track
       try {
         const newVideo = await AgoraRTC.createCameraVideoTrack();
         await agoraClient.publish(newVideo);
         setLocalTracks(prev => ({ ...prev, videoTrack: newVideo }));
         setIsVideoOn(true);
       } catch (e) {
-        alert("Không thể bật lại Camera. Hãy kiểm tra xem thiết bị có đang bị ứng dụng khác chiếm quyền không!");
+        alert("Không thể bật lại Camera.");
       }
     }
   };
