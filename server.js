@@ -34,7 +34,6 @@ export default function App() {
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [isHost, setIsHost] = useState(false);
 
-  // Tự động bóc tách Mã Phòng từ URL (hỗ trợ vào chung phòng qua link mời)
   const [roomId, setRoomId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('room') || 'phong-mac-dinh-123';
@@ -106,7 +105,6 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // Khởi tạo Agora Video/Audio Call an toàn, tách biệt thiết bị để tránh xung đột
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
@@ -128,14 +126,11 @@ export default function App() {
           if (isMounted) setRemoteUsers((prev) => prev.filter((u) => u.uid !== user.uid));
         });
 
-        // 1. Lấy Token từ server Render
         const res = await fetch(`https://game-ma-soi.onrender.com/api/agora-token?channelName=${roomId}`);
         const data = await res.json();
 
-        // 2. Join channel
         await agoraClient.join(AGORA_APP_ID, roomId, data.token, socket.id);
 
-        // 3. Khởi tạo Mic và Cam riêng biệt để tránh lỗi xung đột phần cứng hoặc trình duyệt chặn đồng thời
         let audioTrack = null;
         let videoTrack = null;
 
@@ -190,7 +185,6 @@ export default function App() {
     }
   };
 
-  // MÀN HÌNH CHỌN GHẾ VÀ VÀO PHÒNG
   if (!hasJoined) {
     return (
       <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -245,7 +239,6 @@ export default function App() {
     );
   }
 
-  // MÀN HÌNH BÀN CHƠI TRỰC TUYẾN
   return (
     <div style={{ backgroundColor: '#020617', color: '#ffffff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', boxSizing: 'border-box' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: '#0f172a', padding: '16px', borderRadius: '12px', border: '1px solid #1e293b', flexWrap: 'wrap', gap: '12px' }}>
@@ -283,7 +276,6 @@ export default function App() {
           return (
             <div key={seatNum} style={{ position: 'relative', borderRadius: '16px', backgroundColor: '#0f172a', border: isMe ? '2px solid #a855f7' : '2px solid #334155', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               
-              {/* Hiệu ứng trạng thái ban đêm: Chỉ Quản Trò (isHost) mới nhìn thấy hiệu ứng tác động lên người chơi */}
               {occupant.statusEffect && isHost && (
                 <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: '#dc2626', color: '#ffffff', fontSize: '10px', padding: '2px 6px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 10 }}>
                   {occupant.statusEffect === 'WOLF_TARGET' && '🐺 Sói nhắm'}
