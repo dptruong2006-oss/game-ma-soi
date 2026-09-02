@@ -9,9 +9,9 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 // =========================================================================
-// THÔNG TIN AGORA CONSOLE ĐÃ ĐƯỢC ĐIỀN TỰ ĐỘNG
+// THÔNG TIN AGORA CONSOLE
 // =========================================================================
-const AGORA_APP_ID = "74fafa51c6714624bd251133041297d6";
+const AGORA_APP_ID = "f8b9cc77ff234823b6e4685127ebf475"; // Khớp với App ID bên App.jsx của bạn
 const AGORA_APP_CERTIFICATE = "ed245f7beda24faab0f5647571b388c2";
 
 // API tự động sinh Agora Token theo mã phòng
@@ -21,7 +21,7 @@ app.get('/api/agora-token', (req, res) => {
     return res.status(400).json({ error: 'Thiếu channelName' });
   }
 
-  const expirationTimeInSeconds = 3600 * 24; // Token có hiệu lực trong 24 giờ
+  const expirationTimeInSeconds = 3600 * 24; 
   const currentTimestamp = Math.floor(Date.now() / 1000);
   const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
@@ -29,7 +29,7 @@ app.get('/api/agora-token', (req, res) => {
     AGORA_APP_ID,
     AGORA_APP_CERTIFICATE,
     channelName,
-    0, // UID = 0 để Agora tự cấp ID
+    0, 
     RtcRole.PUBLISHER,
     privilegeExpiredTs
   );
@@ -43,96 +43,63 @@ const rooms = {};
 io.on('connection', (socket) => {
   console.log(`Người chơi kết nối: ${socket.id}`);
 
-  // Thao tác 1: Tham gia hoặc Tạo phòng Ma Sói
-  socket.on('join_room', ({ roomId, name, avatar, isAdmin }) => {
+  // Thao tác 1: Tham gia phòng chơi với Mã Phòng (roomId) và Vị trí Ghế (seat)
+  socket.on('join_room', ({ roomId, name, seat, isHost }) => {
     socket.join(roomId);
+
     if (!rooms[roomId]) {
       rooms[roomId] = {
         roomId,
-        adminId: isAdmin ? socket.id : null,
-        status: 'LOBBY',
-        players: {},
-        votes: {},
-        actionLog: { wolfTarget: null }
+        phase: 'Đang chờ tập hợp người chơi',
+        players: {}
       };
     }
-    if (isAdmin) rooms[roomId].adminId = socket.id;
 
+    // Lưu thông tin người chơi khớp với cấu trúc Frontend
     rooms[roomId].players[socket.id] = {
       id: socket.id,
       name,
-      avatar: avatar || 'https://dicebear.com' + name,
-      role: 'UNASSIGNED',
-      isAlive: true,
-      isMuted: false
+      seat: parseInt(seat),
+      isHost: !!isHost,
+      role: 'HIDDEN',
+      isAlive: true
     };
 
-    io.to(roomId).emit('room_updated', sanitizeGameState(rooms[roomId]));
+    // Gửi đồng bộ trạng thái phòng về cho TẤT CẢ mọi người trong phòng
+    io.to(roomId).emit('room_state_update', rooms[roomId]);
+    console.log(`User [${name}] đã vào phòng [${roomId}] tại ghế số [${seat}]`);
   });
 
-  // Thao tác 2: Quản trò (Admin) bấm nút tự động chia vai trò bảo mật
-  socket.on('assign_roles', ({ roomId, roleMapping }) => {
+  // Thao tác 2: Nhận quyền Quản Trò (Host)
+  socket.on('claim_host', ({ roomId, socketId }) => {
     const room = rooms[roomId];
-    if (!room) return;
-
-    Object.keys(roleMapping).forEach((pId) => {
-      if (room.players[pId]) {
-        room.players[pId].role = roleMapping[pId];
-        // Gửi bí mật vai trò về riêng máy của người chơi đó thôi
-        io.to(pId).emit('your_role', { role: roleMapping[pId] });
+    if (room && room.players[socketId]) {
+      // Kiểm tra xem phòng đã có ai làm Host chưa
+      const hasHostAlready = Object.values(room.players).some(p => p.isHost);
+      if (!hasHostAlready) {
+        room.players[socketId].isHost = true;
+        io.to(roomId).emit('room_state_update', room);
       }
-    });
-
-    room.status = 'NIGHT';
-    io.to(roomId).emit('room_updated', sanitizeGameState(room));
-  });
-
-  // Thao tác 3: Xử lý Ma Sói chọn mục tiêu cắn trong đêm
-  socket.on('wolf_attack', ({ roomId, targetId }) => {
-    const room = rooms[roomId];
-    if (!room || room.players[socket.id]?.role !== 'WEREWOLF') return;
-
-    room.actionLog.wolfTarget = targetId;
-    
-    // Gửi đồng bộ để các con sói khác trong phòng nhìn thấy mục tiêu đang chọn
-    Object.keys(room.players).forEach(pId => {
-      if (room.players[pId].role === 'WEREWOLF') {
-        io.to(pId).emit('wolf_target_updated', { targetId });
-      }
-    });
-  });
-
-  // Thao tác 4: Kích hoạt hiệu ứng tử vong Anime Slash khi có người bị giết
-  socket.on('trigger_death', ({ roomId, targetId, reason }) => {
-    const room = rooms[roomId];
-    if (!room) return;
-
-    if (room.players[targetId]) {
-      room.players[targetId].isAlive = false;
-      room.players[targetId].isMuted = true; // Chết thì tắt tiếng không cho nhắc bài
-
-      // Phát tín hiệu chém cho TẤT CẢ mọi người cùng thấy
-      io.to(roomId).emit('player_slashed', { targetId, reason });
-      
-      // Đợi 1.5 giây cho hiệu ứng chạy xong rồi mới cập nhật danh sách phòng
-      setTimeout(() => {
-        io.to(roomId).emit('room_updated', sanitizeGameState(room));
-      }, 1500);
     }
   });
 
+  // Thao tác 3: Khi người chơi ngắt kết nối hoặc thoát phòng
   socket.on('disconnect', () => {
     console.log(`Người chơi ngắt kết nối: ${socket.id}`);
+    for (const roomId in rooms) {
+      if (rooms[roomId].players[socket.id]) {
+        delete rooms[roomId].players[socket.id];
+        
+        // Nếu phòng không còn ai, xóa phòng để giải phóng bộ nhớ
+        if (Object.keys(rooms[roomId].players).length === 0) {
+          delete rooms[roomId];
+        } else {
+          io.to(roomId).emit('room_state_update', rooms[roomId]);
+        }
+      }
+    }
   });
 });
 
-// Hàm bảo mật: Giấu vai trò của người chơi khác trước khi gửi thông tin phòng về máy client
-function sanitizeGameState(room) {
-  const publicPlayers = {};
-  Object.keys(room.players).forEach((id) => {
-    publicPlayers[id] = { ...room.players[id], role: 'HIDDEN' }; 
-  });
-  return { ...room, players: publicPlayers };
-}
-
-server.listen(4000, () => console.log('Máy chủ Ma Sói đang chạy ở cổng 4000!'));
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => console.log(`Máy chủ Ma Sói đang chạy ở cổng ${PORT}!`));
