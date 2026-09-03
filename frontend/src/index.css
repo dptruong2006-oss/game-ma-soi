@@ -162,6 +162,12 @@
   animation: winGlow 2s infinite ease-in-out;
 }
 
+/* === BỔ SUNG MỚI: TỐI ƯU HIỆN THỊ TRÊN MOBILE & HIỆU ỨNG GLASSMORPHISM CHO CHAT === */
+.wolf-chat-container, .ghost-chat-container {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
 /* Tùy chỉnh thanh cuộn đẹp mắt cho khung chat Sói / Hồn Ma */
 ::-webkit-scrollbar {
   width: 5px;
@@ -169,6 +175,7 @@
 }
 ::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.25);

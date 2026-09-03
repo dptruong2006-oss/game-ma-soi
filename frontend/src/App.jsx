@@ -64,6 +64,10 @@ export default function App() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
 
+  // Tham chiếu âm thanh ban đêm
+  const laughAudioRef = useRef(null);
+  const windAudioRef = useRef(null);
+
   // Âm thanh hiệu ứng chuyển Đêm / Ngày 
   const playSoundEffect = (phase) => {
     try {
@@ -97,6 +101,37 @@ export default function App() {
     }
   }, [roomId]);
 
+  const playerList = Object.values(roomState.players || {});
+  const existingHost = playerList.find(p => p.isHost === true);
+  const takenSeats = playerList.map(p => p.seat);
+  const myPlayerInfo = roomState.players[socket.id];
+  const isNight = roomState.phase === 'NIGHT';
+  const isDay = roomState.phase === 'DAY';
+  const isDead = myPlayerInfo && myPlayerInfo.isAlive === false;
+
+  // Điều khiển phát/dừng âm thanh ban đêm theo phase NIGHT chuẩn xác & vừa tai
+  useEffect(() => {
+    if (isNight) {
+      if (laughAudioRef.current) {
+        laughAudioRef.current.volume = 0.3;
+        laughAudioRef.current.play().catch(() => {});
+      }
+      if (windAudioRef.current) {
+        windAudioRef.current.volume = 0.25;
+        windAudioRef.current.play().catch(() => {});
+      }
+    } else {
+      if (laughAudioRef.current) {
+        laughAudioRef.current.pause();
+        laughAudioRef.current.currentTime = 0;
+      }
+      if (windAudioRef.current) {
+        windAudioRef.current.pause();
+        windAudioRef.current.currentTime = 0;
+      }
+    }
+  }, [isNight]);
+
   useEffect(() => {
     socket.on('room_state_update', (state) => {
       if (state && state.phase && state.phase !== roomState.phase) {
@@ -128,14 +163,6 @@ export default function App() {
     };
   }, [roomState.phase]);
 
-  const playerList = Object.values(roomState.players || {});
-  const existingHost = playerList.find(p => p.isHost === true);
-  const takenSeats = playerList.map(p => p.seat);
-  const myPlayerInfo = roomState.players[socket.id];
-  const isNight = roomState.phase === 'NIGHT';
-  const isDay = roomState.phase === 'DAY';
-  const isDead = myPlayerInfo && myPlayerInfo.isAlive === false;
-
   const handleJoinGame = (e) => {
     e.preventDefault();
     if (!playerName.trim()) return alert("Vui lòng nhập tên!");
@@ -161,12 +188,19 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // CHẶN HOÀN TOÀN MIC & CAM KHI SANG ĐÊM (Trừ Sói và Host)
+  // PHÂN QUYỀN MIC & CAM TỰ ĐỘNG BAN ĐÊM (Chỉ Quản trò & Sói được tương tác)
   useEffect(() => {
     if (!myPlayerInfo) return;
 
-    const allowedToSpeak = myPlayerInfo.canSpeak !== false;
-    const allowedToCam = myPlayerInfo.canCam !== false;
+    let allowedToSpeak = myPlayerInfo.canSpeak !== false;
+    let allowedToCam = myPlayerInfo.canCam !== false;
+
+    // Luật ban đêm: Ngoài Quản trò và Sói ra, tất cả bị ẩn cam & cấm mic
+    if (isNight && !isHost) {
+      const amIWolf = myPlayerInfo.role === 'WOLF';
+      allowedToSpeak = amIWolf;
+      allowedToCam = amIWolf;
+    }
 
     // Xử lý Audio (Mic)
     if (localTracks.audioTrack) {
@@ -191,7 +225,7 @@ export default function App() {
         agoraClient.publish([localTracks.videoTrack]).catch(() => {});
       }
     }
-  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam, isNight]);
+  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam, isNight, myPlayerInfo?.role, isHost]);
 
   useEffect(() => {
     if (!hasJoined) return;
@@ -231,6 +265,22 @@ export default function App() {
     initAgora();
     return () => { isMounted = false; agoraClient.removeAllListeners(); };
   }, [hasJoined, roomId]);
+
+  // Kiểm tra xem người chơi khác có được phép hiển thị video/mic đối với mình không
+  const canSeeStream = (occupant) => {
+    if (!occupant) return false;
+    if (occupant.id === socket.id) return true; // Luôn thấy chính mình
+    if (isHost) return true; // Quản trò thấy tất cả
+
+    if (isNight) {
+      // Ban đêm: Chỉ Sói và Quản trò mới được nhìn thấy/nghe nhau, các vai trò khác ẩn hết
+      const amIWolf = myPlayerInfo?.role === 'WOLF';
+      const isTargetWolf = occupant.role === 'WOLF';
+      return amIWolf && isTargetWolf;
+    }
+
+    return true; // Ban ngày hiển thị bình thường
+  };
 
   if (!hasJoined) {
     return (
@@ -283,7 +333,7 @@ export default function App() {
       {/* Hiệu ứng đường chém anime khi chuyển đêm */}
       {isSlashing && <div className="slash-effect" />}
 
-      {/* HIỆU ỨNG BAN ĐÊM: Sấm sét, sương mù máu, bầy hồn ma rùng rợn & âm thanh tiếng cười ma quái */}
+      {/* HIỆU ỨNG BAN ĐÊM: Sấm sét, sương mù máu, bầy hồn ma rùng rợn & âm thanh nền */}
       {isNight && (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
           <div className="night-blood-overlay" />
@@ -308,19 +358,9 @@ export default function App() {
             <div style={{ fontSize: '3.8rem' }}>💀</div>
           </div>
 
-          {/* Âm thanh tiếng cười ma quái & gió hú (Chuyển Đêm) */}
-          <audio 
-            autoPlay 
-            loop 
-            src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" 
-            onPlay={(e) => { e.currentTarget.volume = 0.5; }} 
-          />
-          <audio 
-            autoPlay 
-            loop 
-            src="https://actions.google.com/sounds/v1/ambiences/creepy_wind.ogg" 
-            onPlay={(e) => { e.currentTarget.volume = 0.3; }} 
-          />
+          {/* Âm thanh tiếng cười ma quái & gió hú ban đêm (Quản lý qua ref với âm lượng 30%) */}
+          <audio ref={laughAudioRef} loop src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" />
+          <audio ref={windAudioRef} loop src="https://actions.google.com/sounds/v1/ambiences/creepy_wind.ogg" />
         </div>
       )}
 
@@ -454,10 +494,16 @@ export default function App() {
                         👻 ĐÃ CHẾT
                       </div>
                     )}
-                    {isMe ? (
-                      localTracks.videoTrack && isVideoOn ? <AgoraVideoPlayer videoTrack={localTracks.videoTrack} isLocal={true} /> : <span>Tắt Cam</span>
+                    {canSeeStream(occupant) ? (
+                      isMe ? (
+                        localTracks.videoTrack && isVideoOn ? <AgoraVideoPlayer videoTrack={localTracks.videoTrack} isLocal={true} /> : <span>Tắt Cam</span>
+                      ) : (
+                        remoteUser?.videoTrack ? <AgoraVideoPlayer videoTrack={remoteUser.videoTrack} audioTrack={remoteUser.audioTrack} isLocal={false} /> : <span>Chờ Video</span>
+                      )
                     ) : (
-                      remoteUser?.videoTrack ? <AgoraVideoPlayer videoTrack={remoteUser.videoTrack} audioTrack={remoteUser.audioTrack} isLocal={false} /> : <span>Chờ Video</span>
+                      <div style={{ color: '#64748b', fontSize: '11px', textAlign: 'center', padding: '0 10px' }}>
+                        🌙 Đang ngủ...
+                      </div>
                     )}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '6px' }}>
@@ -529,8 +575,7 @@ export default function App() {
               <div style={{ display: 'flex', gap: '6px' }}>
                 <input 
                   type="text" 
-                  placeholder={isDead ? "Tám chuyện với các hồn ma khác..." : "Bàn kế hoạch với đồng bọn..."} 
-                  value={isDead ? ghostInputMsg : wolfInputMsg} 
+                  value={isDead ? ghostInputMsg : wolfInputMsg}
                   onChange={e => isDead ? setGhostInputMsg(e.target.value) : setWolfInputMsg(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
@@ -545,7 +590,8 @@ export default function App() {
                       }
                     }
                   }}
-                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #3f3f46', background: '#09090b', color: '#fff', fontSize: '12px' }}
+                  placeholder={isDead ? "Nhắn với hồn ma..." : "Bàn chiến thuật với Sói..."}
+                  style={{ flex: 1, background: '#27272a', border: '1px solid #3f3f46', borderRadius: '6px', padding: '8px', color: '#fff', fontSize: '12px' }}
                 />
                 <button 
                   onClick={() => {
@@ -558,8 +604,8 @@ export default function App() {
                       socket.emit('send_wolf_message', { roomId, text: wolfInputMsg.trim() });
                       setWolfInputMsg('');
                     }
-                  }} 
-                  style={{ padding: '8px 12px', background: isDead ? '#71717a' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+                  }}
+                  style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', padding: '0 12px', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}
                 >
                   Gửi
                 </button>

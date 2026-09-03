@@ -276,8 +276,8 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Chat riêng của Sói ban đêm
-  socket.on('send_wolf_chat', ({ roomId, message }) => {
+  // Chat riêng của Sói ban đêm (Đồng bộ tên sự kiện là send_wolf_message cho khớp client)
+  socket.on('send_wolf_message', ({ roomId, text }) => {
     const room = rooms[roomId];
     if (!room) return;
 
@@ -290,7 +290,7 @@ io.on('connection', (socket) => {
     if (isWolf || isHost) {
       room.wolfMessages.push({
         sender: `${senderPlayer.name}${isHost ? ' (Quản Trò)' : ' (Sói)'}`,
-        text: message,
+        text: text,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
       if (room.wolfMessages.length > 50) room.wolfMessages.shift();
@@ -298,8 +298,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Hỗ trợ thêm tên cũ phòng hờ client cũ gọi send_wolf_chat
+  socket.on('send_wolf_chat', ({ roomId, message }) => {
+    socket.emit('send_wolf_message', { roomId, text: message });
+  });
+
   // Chat riêng của Hồn Ma (dành cho người đã chết)
-  socket.on('send_ghost_chat', ({ roomId, message }) => {
+  socket.on('send_ghost_message', ({ roomId, text }) => {
     const room = rooms[roomId];
     if (!room) return;
 
@@ -309,7 +314,7 @@ io.on('connection', (socket) => {
 
       room.ghostMessages.push({
         sender: `${player.name} (Ghế #${player.seat})`,
-        text: message,
+        text: text,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
