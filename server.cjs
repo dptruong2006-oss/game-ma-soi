@@ -108,7 +108,6 @@ function handleDayTimeout(roomId) {
   const votes = room.votes || {};
   const voteCounts = {};
 
-  // votes lưu theo seat: { voterSeat: targetSeat }
   Object.values(votes).forEach(targetSeat => {
     voteCounts[targetSeat] = (voteCounts[targetSeat] || 0) + 1;
   });
@@ -157,6 +156,7 @@ function handleDayTimeout(roomId) {
 
   updateMediaPermissions(room);
   io.to(roomId).emit('room_state_update', room);
+  io.to(roomId).emit('media_permission_update', room.players); // Bổ sung bắn riêng để client đồng bộ cam/mic ngay lập tức
 }
 
 function handleNightTimeout(roomId) {
@@ -201,6 +201,7 @@ function handleNightTimeout(roomId) {
     room.winner = winner;
     clearRoomTimer(room);
     io.to(roomId).emit('room_state_update', room);
+    io.to(roomId).emit('media_permission_update', room.players);
     return;
   }
 
@@ -210,6 +211,7 @@ function handleNightTimeout(roomId) {
 
   updateMediaPermissions(room);
   io.to(roomId).emit('room_state_update', room);
+  io.to(roomId).emit('media_permission_update', room.players); // Ép client mở lại mic/cam cho ngày mới
 }
 
 io.on('connection', (socket) => {
@@ -262,13 +264,11 @@ io.on('connection', (socket) => {
       delete room.disconnectTimeouts[seat];
     }
 
-    // Xóa player cũ chiếm cùng seat nếu có
     const existingPlayerAtSeat = Object.values(room.players).find(p => p.seat === seat);
     if (existingPlayerAtSeat && existingPlayerAtSeat.id !== socket.id) {
       delete room.players[existingPlayerAtSeat.id];
     }
 
-    // Xác định quyền Host chuẩn theo seat hoặc người đầu tiên
     const existingHost = Object.values(room.players).find(p => p.isHost);
     let finalIsHost = !!isHost;
     if (!existingHost && Object.keys(room.players).length === 0) {
@@ -296,6 +296,7 @@ io.on('connection', (socket) => {
 
     updateMediaPermissions(room);
     io.to(roomId).emit('room_state_update', room);
+    io.to(roomId).emit('media_permission_update', room.players);
   });
 
   socket.on('update_settings', ({ roomId, settings }) => {
@@ -360,6 +361,7 @@ io.on('connection', (socket) => {
 
     updateMediaPermissions(room);
     io.to(roomId).emit('room_state_update', room);
+    io.to(roomId).emit('media_permission_update', room.players);
     
     const nightTime = room.settings.nightDuration || 60;
     startPhaseTimer(roomId, nightTime, handleNightTimeout);
@@ -408,6 +410,7 @@ io.on('connection', (socket) => {
           room.phase = 'END';
           room.winner = winner;
           io.to(roomId).emit('room_state_update', room);
+          io.to(roomId).emit('media_permission_update', room.players);
           return;
         }
       }
@@ -432,10 +435,10 @@ io.on('connection', (socket) => {
 
       updateMediaPermissions(room);
       io.to(roomId).emit('room_state_update', room);
+      io.to(roomId).emit('media_permission_update', room.players);
     }
   });
 
-  // Khắc phục: Lưu vote theo seat của người chơi thay vì socket.id để tránh lỗi mất/trùng phiếu khi reconnect
   const handleVoteAction = (roomId, targetSeat) => {
     const room = rooms[roomId];
     if (!room || room.phase !== 'DAY') return;
@@ -537,7 +540,6 @@ io.on('connection', (socket) => {
           if (room.players[socket.id] && room.players[socket.id].isDisconnected) {
             delete room.players[socket.id];
             
-            // Xóa phiếu bầu theo seat khi player thực sự bị remove
             if (room.votes && room.votes[seat]) {
               delete room.votes[seat];
             }
@@ -547,6 +549,7 @@ io.on('connection', (socket) => {
               delete rooms[roomId];
             } else {
               io.to(roomId).emit('room_state_update', room);
+              io.to(roomId).emit('media_permission_update', room.players);
             }
           }
           if (room.disconnectTimeouts) {
@@ -555,6 +558,7 @@ io.on('connection', (socket) => {
         }, 45000);
 
         io.to(roomId).emit('room_state_update', room);
+        io.to(roomId).emit('media_permission_update', room.players);
         break;
       }
     }

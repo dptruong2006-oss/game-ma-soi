@@ -144,6 +144,11 @@ export default function App() {
       }
     });
 
+    // Bổ sung lắng nghe sự kiện đồng bộ quyền phần cứng từ server
+    socket.on('media_permission_update', (players) => {
+      setRoomState(prev => ({ ...prev, players }));
+    });
+
     socket.on('seer_result', (data) => {
       alert(`🔮 KẾT QUẢ TIÊN TRI (Soi ghế #${data.seat} - ${data.name}): ${data.isWolf ? '🐺 Đây là SÓI!' : '🛡️ Người vô tội (Không phải Sói)!'}`);
     });
@@ -157,6 +162,7 @@ export default function App() {
       socket.off('disconnect');
       socket.off('timer_update');
       socket.off('room_state_update');
+      socket.off('media_permission_update');
       socket.off('seer_result');
       socket.off('notification');
     };
@@ -210,7 +216,7 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // VÁ LỖI MẤT KẾT NỐI KHI ĐỔI PHA (Không unpublish ngắt quãng luồng Agora)
+  // Đồng bộ trạng thái phần cứng Agora với quyền của người chơi
   useEffect(() => {
     if (!myPlayerInfo || !localTracks.audioTrack) return;
     let allowedToSpeak = myPlayerInfo.canSpeak !== false;
@@ -483,17 +489,39 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '6px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{occupant.name} {isMe ? "(Bạn)" : ""}</span>
                     
-                    {isNight && occupant.isAlive && (
-                      <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                        {isHost && (
-                          <>
-                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
-                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺</button>
-                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
-                          </>
-                        )}
-                      </div>
-                    )}
+                    {/* Khu vực hành động Vote (Ban ngày) hoặc Kỹ năng (Ban đêm) */}
+                    <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                      {isDay && occupant.isAlive && !isMe && (
+                        <button onClick={() => socket.emit('cast_vote', { roomId, targetSeat: seatNum })} style={{ fontSize: '9px', padding: '2px 6px', background: '#eab308', color: '#000', border: 'none', borderRadius: '3px', fontWeight: 'bold', cursor: 'pointer' }}>🗳️ Vote</button>
+                      )}
+
+                      {isNight && occupant.isAlive && (
+                        <>
+                          {/* Nút hành động dành cho Host */}
+                          {isHost && (
+                            <>
+                              <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
+                              <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺</button>
+                              <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
+                            </>
+                          )}
+
+                          {/* Nút hành động chuẩn theo Role cá nhân */}
+                          {!isHost && myPlayerInfo?.role === 'GUARD' && (
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️ Bảo vệ</button>
+                          )}
+                          {!isHost && myPlayerInfo?.role === 'WOLF' && (
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '2px 6px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺 Cắn</button>
+                          )}
+                          {!isHost && myPlayerInfo?.role === 'SEER' && (
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 6px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮 Soi</button>
+                          )}
+                          {!isHost && myPlayerInfo?.role === 'WITCH' && (
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WITCH_POISON' })} style={{ fontSize: '9px', padding: '2px 6px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🧪 Độc</button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
