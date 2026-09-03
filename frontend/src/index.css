@@ -1,3 +1,51 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes animeSlash {
+  0% { transform: translate(-100%, 100%) rotate(-45deg); opacity: 0; width: 0%; }
+  30% { opacity: 1; width: 150%; }
+  70% { opacity: 1; transform: translate(100%, -100%) rotate(-45deg); width: 150%; filter: drop-shadow(0 0 15px #ff3333); }
+  100% { transform: translate(100%, -100%) rotate(-45deg); opacity: 0; width: 0%; }
+}
+
+.slash-effect {
+  position: absolute; top: 50%; left: -50%; height: 8px;
+  background: linear-gradient(90deg, transparent, #ffffff, #ff3333, transparent);
+  box-shadow: 0 0 20px #ff0000; z-index: 50; pointer-events: none;
+  animation: animeSlash 0.8s ease-in-out forwards;
+}
+
+@keyframes screenShake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-5px, 5px); }
+  40% { transform: translate(5px, -5px); }
+  60% { transform: translate(-5px, -5px); }
+  80% { transform: translate(5px, 5px); }
+}
+
+.card-shake { animation: screenShake 0.4s ease-in-out 0.2s; }
+
+/* === THÊM HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM VÀO ĐÂY === */
+@keyframes floatGhost {
+  0% {
+    transform: translateY(0px) translateX(0px) rotate(0deg) scale(0.8);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateY(-40px) translateX(20px) rotate(10deg) scale(1.1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(-80px) translateX(-20px) rotate(-10deg) scale(0.9);
+    opacity: 0.2;
+  }
+}
+
+.anime-ghost-floating {
+  position: absolute;
+  pointer-events: none;
+  animation: floatGhost 6s ease-in-out infinite;
+  z-index: 5;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+}

@@ -48,7 +48,7 @@ io.on('connection', (socket) => {
         phase: 'LOBBY', // LOBBY, NIGHT, DAY
         players: {},
         wolfMessages: [],
-        ghostMessages: [], // Khởi tạo mảng lưu tin nhắn hồn ma
+        ghostMessages: [], 
         votes: {}, // Lưu trữ phiếu bầu ban ngày { voterSocketId: targetSeat }
         settings: {
           wolfCount: 2,
@@ -121,7 +121,7 @@ io.on('connection', (socket) => {
 
     room.phase = 'NIGHT';
     room.wolfMessages = [];
-    room.ghostMessages = []; // Reset mảng chat ma khi bắt đầu ván mới
+    room.ghostMessages = []; 
     room.votes = {}; 
     io.to(roomId).emit('room_state_update', room);
   });
@@ -131,6 +131,7 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
       room.phase = phase;
+      // Khi chuyển sang Đêm hoặc Ngày mới, có thể reset lại phiếu bầu cũ nếu cần
       if (phase === 'NIGHT') {
         room.votes = {};
       }
@@ -166,7 +167,6 @@ io.on('connection', (socket) => {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Giới hạn lưu trữ 50 tin nhắn gần nhất
       if (room.ghostMessages.length > 50) {
         room.ghostMessages.shift();
       }
@@ -198,6 +198,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Xử lý tác vụ ban đêm của Quản trò (Bảo vệ, Sói cắn, Tiên tri soi)
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
