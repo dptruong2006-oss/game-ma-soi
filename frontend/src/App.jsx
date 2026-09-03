@@ -118,9 +118,14 @@ export default function App() {
       alert(`🔮 KẾT QUẢ TIÊN TRI (Soi ghế #${data.seat} - ${data.name}): ${data.isWolf ? '🐺 Đây là SÓI!' : '🛡️ Người vô tội (Không phải Sói)!'}`);
     });
 
+    socket.on('notification', (data) => {
+      alert(data.message);
+    });
+
     return () => {
       socket.off('room_state_update');
       socket.off('seer_result');
+      socket.off('notification');
     };
   }, [roomState.phase]);
 
@@ -156,6 +161,30 @@ export default function App() {
     navigator.clipboard.writeText(window.location.href);
     alert("Đã sao chép link mời phòng: " + roomId);
   };
+
+  // Đồng bộ trạng thái Bật/Tắt Mic & Cam theo phân quyền từ server (canSpeak, canCam)
+  useEffect(() => {
+    if (!myPlayerInfo) return;
+    
+    // Xử lý Mic
+    if (localTracks.audioTrack) {
+      const allowedToSpeak = myPlayerInfo.canSpeak !== false;
+      // Nếu server cấm nói (ví dụ dân thường ban đêm) nhưng local đang bật -> ép tắt và đồng bộ state
+      if (!allowedToSpeak && isMicOn) {
+        localTracks.audioTrack.setEnabled(false);
+        setIsMicOn(false);
+      }
+    }
+
+    // Xử lý Camera
+    if (localTracks.videoTrack) {
+      const allowedToCam = myPlayerInfo.canCam !== false;
+      if (!allowedToCam && isVideoOn) {
+        localTracks.videoTrack.setEnabled(false);
+        setIsVideoOn(false);
+      }
+    }
+  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam]);
 
   useEffect(() => {
     if (!hasJoined) return;
@@ -287,8 +316,32 @@ export default function App() {
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={copyInviteLink} style={{ padding: '8px 12px', borderRadius: '8px', background: '#1e3a8a', color: '#93c5fd', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}>📋 Link Mời</button>
-            <button onClick={() => { setIsMicOn(!isMicOn); localTracks.audioTrack?.setEnabled(!isMicOn); }} style={{ padding: '8px 12px', borderRadius: '8px', background: isMicOn ? '#059669' : '#dc2626', color: '#fff', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>{isMicOn ? '🎤 Mic Bật' : '🎙️ Mic Tắt'}</button>
-            <button onClick={() => { setIsVideoOn(!isVideoOn); localTracks.videoTrack?.setEnabled(!isVideoOn); }} style={{ padding: '8px 12px', borderRadius: '8px', background: isVideoOn ? '#059669' : '#dc2626', color: '#fff', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>{isVideoOn ? '📹 Cam Bật' : '📷 Cam Tắt'}</button>
+            <button 
+              onClick={() => { 
+                if (!isHost && isNight && myPlayerInfo?.role !== 'WOLF') {
+                  return alert('Ban đêm bạn bị cấm bật mic (chỉ Sói mới được nói chuyện)!');
+                }
+                const nextMic = !isMicOn;
+                setIsMicOn(nextMic); 
+                localTracks.audioTrack?.setEnabled(nextMic); 
+              }} 
+              style={{ padding: '8px 12px', borderRadius: '8px', background: isMicOn ? '#059669' : '#dc2626', color: '#fff', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              {isMicOn ? '🎤 Mic Bật' : '🎙️ Mic Tắt'}
+            </button>
+            <button 
+              onClick={() => { 
+                if (!isHost && isNight) {
+                  return alert('Ban đêm tất cả camera đều bị tắt tự động!');
+                }
+                const nextCam = !isVideoOn;
+                setIsVideoOn(nextCam); 
+                localTracks.videoTrack?.setEnabled(nextCam); 
+              }} 
+              style={{ padding: '8px 12px', borderRadius: '8px', background: isVideoOn ? '#059669' : '#dc2626', color: '#fff', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              {isVideoOn ? '📹 Cam Bật' : '📷 Cam Tắt'}
+            </button>
           </div>
         </header>
 
@@ -339,8 +392,7 @@ export default function App() {
               const isMe = occupant && occupant.id === socket.id;
               const remoteUser = occupant ? remoteUsers.find(u => u.uid === occupant.id) : null;
 
-              // Kiểm tra xem ghế có đang được bảo vệ bởi khiên hoặc chọn mục tiêu không
-              const isShielded = occupant?.statusEffect === 'GUARD';
+              const isShielded = occupant?.statusEffect === 'GUARDED';
               const cardClass = isShielded ? 'guard-shield-active' : (isNight ? 'target-selecting-glow' : '');
 
               if (!occupant) {
@@ -353,8 +405,8 @@ export default function App() {
 
               return (
                 <div key={seatNum} className={cardClass} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
-                  {occupant.statusEffect && isHost && (
-                    <div className={occupant.statusEffect === 'WITCH_POTION' ? 'witch-potion-effect' : ''} style={{ position: 'absolute', top: '6px', right: '6px', background: occupant.statusEffect === 'WITCH_POTION' ? '#a855f7' : '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
+                  {occupant.statusEffect && (
+                    <div style={{ position: 'absolute', top: '6px', right: '6px', background: '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
                       {occupant.statusEffect}
                     </div>
                   )}
@@ -376,11 +428,34 @@ export default function App() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '6px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{occupant.name} {isMe ? "(Bạn)" : ""}</span>
-                    {isHost && isNight && (
-                      <div style={{ display: 'flex', gap: '3px' }}>
-                        <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
-                        <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺</button>
-                        <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
+                    
+                    {/* Bảng Hành Động Đêm (Dành cho Quản Trò hoặc Người Chơi đúng vai trò đang sống) */}
+                    {isNight && occupant.isAlive && (
+                      <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                        {/* Host có quyền test mọi action */}
+                        {isHost && (
+                          <>
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺</button>
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
+                          </>
+                        )}
+                        {/* Người chơi tự thao tác theo đúng vai trò của mình */}
+                        {!isHost && isMe && myPlayerInfo?.role === 'GUARD' && (
+                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️ Bảo Vệ</button>
+                        )}
+                        {!isHost && isMe && myPlayerInfo?.role === 'WOLF' && (
+                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺 Cắn</button>
+                        )}
+                        {!isHost && isMe && myPlayerInfo?.role === 'SEER' && (
+                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮 Soi</button>
+                        )}
+                        {!isHost && isMe && myPlayerInfo?.role === 'WITCH' && (
+                          <>
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WITCH_SAVE' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#059669', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🧪 Cứu</button>
+                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WITCH_POISON' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#7c2d12', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>☠️ Độc</button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

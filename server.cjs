@@ -39,6 +39,27 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
+// Hàm cập nhật quyền Mic (canSpeak) và Cam (canCam) cho người chơi
+function updateMediaPermissions(room) {
+  const isNight = room.phase === 'NIGHT';
+
+  Object.values(room.players).forEach(player => {
+    if (player.isHost) {
+      // Quản trò luôn được quyền nói và mở cam mọi lúc
+      player.canSpeak = true;
+      player.canCam = true;
+    } else if (isNight) {
+      // BAN ĐÊM: Chỉ Sói mới được mở mic, còn lại tắt. Cam tất cả đều tắt trừ Quản trò.
+      player.canSpeak = (player.role === 'WOLF');
+      player.canCam = false;
+    } else {
+      // BAN NGÀY / LOBBY: Mọi người đều được phép bật mic và cam nếu còn sống
+      player.canSpeak = player.isAlive;
+      player.canCam = player.isAlive;
+    }
+  });
+}
+
 io.on('connection', (socket) => {
   socket.on('join_room', ({ roomId, name, seat, isHost }) => {
     socket.join(roomId);
@@ -49,7 +70,11 @@ io.on('connection', (socket) => {
         players: {},
         wolfMessages: [],
         ghostMessages: [], 
-        votes: {}, // Lưu trữ phiếu bầu ban ngày { voterSocketId: targetSeat }
+        votes: {}, 
+        wolfTarget: null,
+        guardTarget: null,
+        witchHealTarget: null,
+        witchPoisonTarget: null,
         settings: {
           wolfCount: 2,
           guardCount: 1,
@@ -73,10 +98,15 @@ io.on('connection', (socket) => {
       seat,
       isHost: finalIsHost,
       role: null,
-      statusEffect: null, // GUARDED, WOLF_TARGET, WITCH_SAVED, WITCH_POISONED
-      isAlive: true
+      statusEffect: null, 
+      isAlive: true,
+      hasUsedHeal: false,   
+      hasUsedPoison: false,
+      canSpeak: true,
+      canCam: true
     };
 
+    updateMediaPermissions(room);
     io.to(roomId).emit('room_state_update', room);
   });
 
@@ -117,36 +147,49 @@ io.on('connection', (socket) => {
       room.players[id].role = rolesPool[index];
       room.players[id].statusEffect = null;
       room.players[id].isAlive = true;
+      room.players[id].hasUsedHeal = false;
+      room.players[id].hasUsedPoison = false;
     });
 
     room.phase = 'NIGHT';
     room.wolfMessages = [];
     room.ghostMessages = []; 
     room.votes = {}; 
+    room.wolfTarget = null;
+    room.guardTarget = null;
+    room.witchHealTarget = null;
+    room.witchPoisonTarget = null;
+
+    updateMediaPermissions(room);
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Chuyển đổi qua lại giữa Đêm và Ngày do Quản trò bấm
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
-      // Nếu chuyển từ Đêm sang Ngày, tiến hành tính toán kết quả ban đêm
       if (room.phase === 'NIGHT' && phase === 'DAY') {
-        Object.values(room.players).forEach(player => {
-          if (!player.isAlive) return;
+        let deadSeatsThisNight = [];
 
-          let isGuarded = player.statusEffect === 'GUARDED';
-          let isWolfTarget = player.statusEffect === 'WOLF_TARGET';
-          let isWitchSaved = player.statusEffect === 'WITCH_SAVED';
-          let isWitchPoisoned = player.statusEffect === 'WITCH_POISONED';
+        let bittenSeat = room.wolfTarget;
+        let guardedSeat = room.guardTarget;
+        let healedSeat = room.witchHealTarget;
+        let poisonedSeat = room.witchPoisonTarget;
 
-          if (isWitchPoisoned) {
-            player.isAlive = false;
-          } else if (isWolfTarget) {
-            // Nếu bị sói cắn mà không được bảo vệ và không được cứu -> chết
-            if (!isGuarded && !isWitchSaved) {
-              player.isAlive = false;
-            }
+        if (bittenSeat) {
+          if (bittenSeat !== guardedSeat && bittenSeat !== healedSeat) {
+            deadSeatsThisNight.push(bittenSeat);
+          }
+        }
+
+        if (poisonedSeat) {
+          if (!deadSeatsThisNight.includes(poisonedSeat)) {
+            deadSeatsThisNight.push(poisonedSeat);
+          }
+        }
+
+        Object.values(room.players).forEach(p => {
+          if (deadSeatsThisNight.includes(parseInt(p.seat))) {
+            p.isAlive = false;
           }
         });
       }
@@ -154,27 +197,41 @@ io.on('connection', (socket) => {
       room.phase = phase;
       if (phase === 'NIGHT') {
         room.votes = {};
+        room.wolfTarget = null;
+        room.guardTarget = null;
+        room.witchHealTarget = null;
+        room.witchPoisonTarget = null;
+
         Object.values(room.players).forEach(p => {
           p.statusEffect = null;
         });
 
-        // Khi sang đêm, gửi riêng thông tin ai bị sói cắn cho Phù thủy (nếu cần thiết cho client hiển thị)
-        const wolfTargetPlayer = Object.values(room.players).find(p => p.statusEffect === 'WOLF_TARGET');
+        const wolfTargetPlayer = Object.values(room.players).find(p => p.seat === room.wolfTarget);
         const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
         if (witchPlayer && wolfTargetPlayer) {
           io.to(witchPlayer.id).emit('witch_target_info', { targetSeat: wolfTargetPlayer.seat });
         }
       }
+
+      updateMediaPermissions(room);
       io.to(roomId).emit('room_state_update', room);
     }
   });
 
-  // Chat riêng của Sói ban đêm
+  // Chat riêng của Sói ban đêm (chỉ Sói hoặc Quản Trò mới được gửi)
   socket.on('send_wolf_chat', ({ roomId, message }) => {
     const room = rooms[roomId];
-    if (room && room.players[socket.id]?.role === 'WOLF') {
+    if (!room) return;
+
+    const senderPlayer = room.players[socket.id];
+    if (!senderPlayer) return;
+
+    const isWolf = senderPlayer.role === 'WOLF';
+    const isHost = senderPlayer.isHost;
+
+    if (isWolf || isHost) {
       room.wolfMessages.push({
-        sender: room.players[socket.id].name,
+        sender: `${senderPlayer.name}${isHost ? ' (Quản Trò)' : ' (Sói)'}`,
         text: message,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
@@ -229,26 +286,47 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý tác vụ ban đêm bảo mật (Bảo vệ, Sói cắn, Tiên tri soi, Phù thủy cứu/giết)
+  // Xử lý tác vụ ban đêm (Bảo vệ, Sói cắn, Tiên tri soi, Phù thủy cứu/giết có giới hạn 1 lần)
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
 
+    const player = room.players[socket.id];
+    if (!player || !player.isAlive) return;
+
     const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
     if (!targetPlayer) return;
 
-    if (actionType === 'GUARD') {
-      Object.values(room.players).forEach(p => { if (p.statusEffect === 'GUARDED') p.statusEffect = null; });
+    if (actionType === 'GUARD' && player.role === 'GUARD') {
+      room.guardTarget = targetSeat;
       targetPlayer.statusEffect = 'GUARDED';
-    } else if (actionType === 'WOLF') {
-      Object.values(room.players).forEach(p => { if (p.statusEffect === 'WOLF_TARGET') p.statusEffect = null; });
+    } 
+    else if (actionType === 'WOLF' && player.role === 'WOLF') {
+      room.wolfTarget = targetSeat;
       targetPlayer.statusEffect = 'WOLF_TARGET';
-    } else if (actionType === 'WITCH_SAVE') {
+      room.wolfMessages.push({
+        sender: 'Hệ thống',
+        text: `🐺 Sói đã chọn cắn ghế #${targetSeat}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+    } 
+    else if (actionType === 'WITCH_SAVE' && player.role === 'WITCH') {
+      if (player.hasUsedHeal) {
+        return socket.emit('notification', { message: 'Bạn đã dùng Bình Cứu ở các lượt trước rồi!' });
+      }
+      player.hasUsedHeal = true; // Khóa vĩnh viễn bình cứu
+      room.witchHealTarget = targetSeat;
       targetPlayer.statusEffect = 'WITCH_SAVED';
-    } else if (actionType === 'WITCH_POISON') {
+    } 
+    else if (actionType === 'WITCH_POISON' && player.role === 'WITCH') {
+      if (player.hasUsedPoison) {
+        return socket.emit('notification', { message: 'Bạn đã dùng Bình Độc ở các lượt trước rồi!' });
+      }
+      player.hasUsedPoison = true; // Khóa vĩnh viễn bình độc
+      room.witchPoisonTarget = targetSeat;
       targetPlayer.statusEffect = 'WITCH_POISONED';
-    } else if (actionType === 'SEER_CHECK') {
-      // Chỉ gửi kết quả về riêng cho Tiên tri thực hiện thao tác
+    } 
+    else if (actionType === 'SEER_CHECK' && player.role === 'SEER') {
       socket.emit('seer_result', {
         seat: targetSeat,
         name: targetPlayer.name,
@@ -256,7 +334,7 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Gửi thông báo riêng hoặc cập nhật ngầm cho Quản trò biết hành động đã được thực hiện (nếu cần theo dõi)
+    // Gửi thông báo cho Host theo dõi hành động nếu cần
     const hostPlayer = Object.values(room.players).find(p => p.isHost);
     if (hostPlayer) {
       io.to(hostPlayer.id).emit('host_action_notification', {
@@ -265,8 +343,7 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Không broadcast trạng thái statusEffect chi tiết ra phòng chung để bảo mật tuyệt đối vai trò
-    // Chỉ cập nhật trạng thái chung cơ bản nếu cần
+    io.to(roomId).emit('room_state_update', room);
   });
 
   socket.on('disconnect', () => {
