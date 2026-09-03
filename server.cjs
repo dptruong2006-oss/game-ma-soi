@@ -48,6 +48,7 @@ io.on('connection', (socket) => {
         phase: 'LOBBY', // LOBBY, NIGHT, DAY
         players: {},
         wolfMessages: [],
+        votes: {}, // Lưu trữ phiếu bầu ban ngày { voterSocketId: targetSeat }
         settings: {
           wolfCount: 2,
           guardCount: 1,
@@ -119,6 +120,7 @@ io.on('connection', (socket) => {
 
     room.phase = 'NIGHT';
     room.wolfMessages = [];
+    room.votes = {}; // Reset phiếu bầu khi bắt đầu game mới
     io.to(roomId).emit('room_state_update', room);
   });
 
@@ -127,6 +129,10 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
       room.phase = phase;
+      // Nếu chuyển về ban đêm hoặc đổi pha, có thể tùy chọn reset phiếu bầu ở đây nếu muốn
+      if (phase === 'NIGHT') {
+        room.votes = {};
+      }
       io.to(roomId).emit('room_state_update', room);
     }
   });
@@ -140,6 +146,30 @@ io.on('connection', (socket) => {
         text: message,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
+      io.to(roomId).emit('room_state_update', room);
+    }
+  });
+
+  // Xử lý bỏ phiếu vote treo cổ vào ban ngày
+  socket.on('cast_vote', ({ roomId, targetSeat }) => {
+    const room = rooms[roomId];
+    if (!room || room.phase !== 'DAY') return;
+
+    // Kiểm tra xem người vote còn sống không
+    const voter = room.players[socket.id];
+    if (!voter || !voter.isAlive) return;
+
+    if (!room.votes) room.votes = {};
+    room.votes[socket.id] = targetSeat;
+
+    io.to(roomId).emit('room_state_update', room);
+  });
+
+  // Quản trò xóa bảng vote
+  socket.on('clear_votes', ({ roomId }) => {
+    const room = rooms[roomId];
+    if (room && room.players[socket.id]?.isHost) {
+      room.votes = {};
       io.to(roomId).emit('room_state_update', room);
     }
   });
@@ -172,6 +202,11 @@ io.on('connection', (socket) => {
     for (const roomId in rooms) {
       if (rooms[roomId].players[socket.id]) {
         delete rooms[roomId].players[socket.id];
+        // Xóa vote của người chơi nếu họ thoát phòng
+        if (rooms[roomId].votes && rooms[roomId].votes[socket.id]) {
+          delete rooms[roomId].votes[socket.id];
+        }
+        
         if (Object.keys(rooms[roomId].players).length === 0) {
           delete rooms[roomId];
         } else {

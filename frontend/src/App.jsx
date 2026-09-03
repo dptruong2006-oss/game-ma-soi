@@ -49,6 +49,7 @@ export default function App() {
     phase: 'LOBBY',
     players: {},
     wolfMessages: [],
+    votes: {},
     settings: { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1, villagerCount: 2 }
   });
 
@@ -115,6 +116,7 @@ export default function App() {
   const takenSeats = playerList.map(p => p.seat);
   const myPlayerInfo = roomState.players[socket.id];
   const isNight = roomState.phase === 'NIGHT';
+  const isDay = roomState.phase === 'DAY';
 
   const handleJoinGame = (e) => {
     e.preventDefault();
@@ -251,9 +253,10 @@ export default function App() {
         <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #d97706', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <h3 style={{ color: '#f59e0b', margin: 0 }}>👑 Bảng Điều Khiển Quản Trò</h3>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button onClick={() => socket.emit('change_phase', { roomId, phase: 'NIGHT' })} style={{ padding: '6px 12px', background: '#312e81', color: '#a5b4fc', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🌙 Đổi sang Đêm</button>
               <button onClick={() => socket.emit('change_phase', { roomId, phase: 'DAY' })} style={{ padding: '6px 12px', background: '#b45309', color: '#fef3c7', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>☀️ Đổi sang Ngày</button>
+              <button onClick={() => socket.emit('clear_votes', { roomId })} style={{ padding: '6px 12px', background: '#78716c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🧹 Xóa Bảng Vote</button>
               <button onClick={() => socket.emit('start_game', { roomId })} style={{ padding: '6px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🚀 Bắt Đầu Ván Đấu</button>
             </div>
           </div>
@@ -328,6 +331,23 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Giao diện Votde / Treo cổ vào Ban Ngày */}
+                {isDay && occupant.isAlive && (
+                  <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                    <span style={{ fontSize: '11px', color: '#facc15', marginBottom: '4px' }}>
+                      Phiếu bầu: {Object.values(roomState.votes || {}).filter(s => s === seatNum).length} 票
+                    </span>
+                    {!isHost && (
+                      <button 
+                        onClick={() => socket.emit('cast_vote', { roomId, targetSeat: seatNum })}
+                        style={{ width: '100%', padding: '4px', background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        🗳️ Vote Loại
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
