@@ -219,7 +219,6 @@ io.on('connection', (socket) => {
           }
         });
 
-        // Kiểm tra xem sau đêm có phe nào thắng chưa
         const winner = checkWinCondition(room);
         if (winner) {
           room.phase = 'END';
@@ -263,7 +262,6 @@ io.on('connection', (socket) => {
       room.winner = winner;
     } else {
       room.phase = 'NIGHT';
-      // Reset thông tin đêm mới
       room.votes = {};
       room.wolfTarget = null;
       room.guardTarget = null;
@@ -276,7 +274,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Chat riêng của Sói ban đêm (Đồng bộ tên sự kiện là send_wolf_message cho khớp client)
+  // Chat riêng của Sói ban đêm
   socket.on('send_wolf_message', ({ roomId, text }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -298,7 +296,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Hỗ trợ thêm tên cũ phòng hờ client cũ gọi send_wolf_chat
   socket.on('send_wolf_chat', ({ roomId, message }) => {
     socket.emit('send_wolf_message', { roomId, text: message });
   });
@@ -373,7 +370,6 @@ io.on('connection', (socket) => {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Tự động báo cho Phù Thủy biết mục tiêu Sói cắn ngay khi Sói chọn xong
       const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
       if (witchPlayer) {
         io.to(witchPlayer.id).emit('witch_target_info', { targetSeat: targetSeat });
