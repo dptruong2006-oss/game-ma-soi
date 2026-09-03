@@ -39,6 +39,7 @@ export default function App() {
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [isHost, setIsHost] = useState(false);
   const [wolfInputMsg, setWolfInputMsg] = useState('');
+  const [ghostInputMsg, setGhostInputMsg] = useState('');
 
   const [roomId, setRoomId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -49,6 +50,7 @@ export default function App() {
     phase: 'LOBBY',
     players: {},
     wolfMessages: [],
+    ghostMessages: [],
     votes: {},
     settings: { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1, villagerCount: 2 }
   });
@@ -117,6 +119,7 @@ export default function App() {
   const myPlayerInfo = roomState.players[socket.id];
   const isNight = roomState.phase === 'NIGHT';
   const isDay = roomState.phase === 'DAY';
+  const isDead = myPlayerInfo && myPlayerInfo.isAlive === false;
 
   const handleJoinGame = (e) => {
     e.preventDefault();
@@ -284,8 +287,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Giao diện Bàn Chơi & Phòng Chat Riêng cho Sói */}
-      <div style={{ display: 'grid', gridTemplateColumns: myPlayerInfo?.role === 'WOLF' && isNight ? '1fr 320px' : '1fr', gap: '20px' }}>
+      {/* Giao diện Bàn Chơi & Phòng Chat (Sói / Hồn Ma) */}
+      <div style={{ display: 'grid', gridTemplateColumns: (myPlayerInfo?.role === 'WOLF' && isNight) || isDead ? '1fr 320px' : '1fr', gap: '20px' }}>
         
         {/* Lưới Ghế Ngồi Video */}
         <main style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '14px' }}>
@@ -304,7 +307,7 @@ export default function App() {
             }
 
             return (
-              <div key={seatNum} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div key={seatNum} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
                 {occupant.statusEffect && isHost && (
                   <div style={{ position: 'absolute', top: '6px', right: '6px', background: '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
                     {occupant.statusEffect}
@@ -314,7 +317,12 @@ export default function App() {
                   <span style={{ background: '#9333ea', color: '#fff', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>Ghế #{seatNum}</span>
                   {occupant.isHost && <span style={{ background: '#d97706', color: '#fff', fontSize: '9px', padding: '2px 6px', borderRadius: '4px' }}>👑 Host</span>}
                 </div>
-                <div style={{ width: '100%', height: '120px', background: '#000', borderRadius: '8px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: '100%', height: '120px', background: '#000', borderRadius: '8px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  {occupant.isAlive === false && (
+                    <div style={{ position: 'absolute', zIndex: 4, color: '#ef4444', fontWeight: 'bold', background: 'rgba(0,0,0,0.7)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      👻 ĐÃ CHẾT
+                    </div>
+                  )}
                   {isMe ? (
                     localTracks.videoTrack && isVideoOn ? <AgoraVideoPlayer videoTrack={localTracks.videoTrack} isLocal={true} /> : <span>Tắt Cam</span>
                   ) : (
@@ -332,7 +340,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Giao diện Votde / Treo cổ vào Ban Ngày */}
+                {/* Giao diện Vote / Treo cổ vào Ban Ngày */}
                 {isDay && occupant.isAlive && (
                   <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
                     <span style={{ fontSize: '11px', color: '#facc15', marginBottom: '4px' }}>
@@ -353,22 +361,54 @@ export default function App() {
           })}
         </main>
 
-        {/* Khung Chat Riêng Dành Cho Sói (Chỉ hiện khi là Sói vào ban đêm) */}
-        {myPlayerInfo?.role === 'WOLF' && isNight && (
-          <aside style={{ background: '#18181b', border: '1px solid #dc2626', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', height: '480px' }}>
-            <h3 style={{ color: '#ef4444', margin: '0 0 10px 0', fontSize: '15px' }}>🐺 Hang Sói (Bàn chiến thuật đêm)</h3>
+        {/* Khung Chat Riêng Dành Cho Sói (Ban đêm) hoặc Hồn Ma (Khi đã chết) */}
+        {((myPlayerInfo?.role === 'WOLF' && isNight) || isDead) && (
+          <aside style={{ background: '#18181b', border: '1px solid #71717a', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', height: '480px' }}>
+            <h3 style={{ color: isDead ? '#a1a1aa' : '#ef4444', margin: '0 0 10px 0', fontSize: '15px' }}>
+              {isDead ? '👻 Hang Hồn Ma (Trò chuyện người âm)' : '🐺 Hang Sói (Bàn chiến thuật đêm)'}
+            </h3>
             <div style={{ flex: 1, background: '#09090b', borderRadius: '8px', padding: '10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' }}>
-              {(roomState.wolfMessages || []).map((m, idx) => (
+              {(isDead ? (roomState.ghostMessages || []) : (roomState.wolfMessages || [])).map((m, idx) => (
                 <div key={idx} style={{ fontSize: '12px' }}>
-                  <span style={{ color: '#f87171', fontWeight: 'bold' }}>{m.sender}: </span>
+                  <span style={{ color: isDead ? '#d4d4d8' : '#f87171', fontWeight: 'bold' }}>{m.sender}: </span>
                   <span style={{ color: '#e4e4e7' }}>{m.text}</span>
                   <span style={{ color: '#71717a', fontSize: '10px', marginLeft: '6px' }}>{m.time}</span>
                 </div>
               ))}
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
-              <input type="text" placeholder="Bàn kế hoạch với đồng bọn..." value={wolfInputMsg} onChange={e => setWolfInputMsg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && wolfInputMsg.trim()) { socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() }); setWolfInputMsg(''); }}} style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #3f3f46', background: '#09090b', color: '#fff', fontSize: '13px' }} />
-              <button onClick={() => { if (wolfInputMsg.trim()) { socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() }); setWolfInputMsg(''); }}} style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Gửi</button>
+              <input 
+                type="text" 
+                placeholder={isDead ? "Tám chuyện với các hồn ma khác..." : "Bàn kế hoạch với đồng bọn..."} 
+                value={isDead ? ghostInputMsg : wolfInputMsg} 
+                onChange={e => isDead ? setGhostInputMsg(e.target.value) : setWolfInputMsg(e.target.value)} 
+                onKeyDown={e => { 
+                  if (e.key === 'Enter') {
+                    if (isDead && ghostInputMsg.trim()) {
+                      socket.emit('send_ghost_chat', { roomId, message: ghostInputMsg.trim() });
+                      setGhostInputMsg('');
+                    } else if (!isDead && wolfInputMsg.trim()) {
+                      socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() });
+                      setWolfInputMsg('');
+                    }
+                  } 
+                }} 
+                style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #3f3f46', background: '#09090b', color: '#fff', fontSize: '13px' }} 
+              />
+              <button 
+                onClick={() => { 
+                  if (isDead && ghostInputMsg.trim()) {
+                    socket.emit('send_ghost_chat', { roomId, message: ghostInputMsg.trim() });
+                    setGhostInputMsg('');
+                  } else if (!isDead && wolfInputMsg.trim()) {
+                    socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() });
+                    setWolfInputMsg('');
+                  }
+                }} 
+                style={{ padding: '8px 12px', background: isDead ? '#52525b' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                Gửi
+              </button>
             </div>
           </aside>
         )}

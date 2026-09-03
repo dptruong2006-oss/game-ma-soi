@@ -48,6 +48,7 @@ io.on('connection', (socket) => {
         phase: 'LOBBY', // LOBBY, NIGHT, DAY
         players: {},
         wolfMessages: [],
+        ghostMessages: [], // Khởi tạo mảng lưu tin nhắn hồn ma
         votes: {}, // Lưu trữ phiếu bầu ban ngày { voterSocketId: targetSeat }
         settings: {
           wolfCount: 2,
@@ -120,7 +121,8 @@ io.on('connection', (socket) => {
 
     room.phase = 'NIGHT';
     room.wolfMessages = [];
-    room.votes = {}; // Reset phiếu bầu khi bắt đầu game mới
+    room.ghostMessages = []; // Reset mảng chat ma khi bắt đầu ván mới
+    room.votes = {}; 
     io.to(roomId).emit('room_state_update', room);
   });
 
@@ -129,7 +131,6 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
       room.phase = phase;
-      // Nếu chuyển về ban đêm hoặc đổi pha, có thể tùy chọn reset phiếu bầu ở đây nếu muốn
       if (phase === 'NIGHT') {
         room.votes = {};
       }
@@ -150,12 +151,35 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Chat riêng của Hồn Ma (chỉ người chơi đã chết mới được gửi)
+  socket.on('send_ghost_chat', ({ roomId, message }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players[socket.id];
+    if (player && player.isAlive === false) {
+      if (!room.ghostMessages) room.ghostMessages = [];
+
+      room.ghostMessages.push({
+        sender: `${player.name} (Ghế #${player.seat})`,
+        text: message,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
+
+      // Giới hạn lưu trữ 50 tin nhắn gần nhất
+      if (room.ghostMessages.length > 50) {
+        room.ghostMessages.shift();
+      }
+
+      io.to(roomId).emit('room_state_update', room);
+    }
+  });
+
   // Xử lý bỏ phiếu vote treo cổ vào ban ngày
   socket.on('cast_vote', ({ roomId, targetSeat }) => {
     const room = rooms[roomId];
     if (!room || room.phase !== 'DAY') return;
 
-    // Kiểm tra xem người vote còn sống không
     const voter = room.players[socket.id];
     if (!voter || !voter.isAlive) return;
 
@@ -202,7 +226,6 @@ io.on('connection', (socket) => {
     for (const roomId in rooms) {
       if (rooms[roomId].players[socket.id]) {
         delete rooms[roomId].players[socket.id];
-        // Xóa vote của người chơi nếu họ thoát phòng
         if (rooms[roomId].votes && rooms[roomId].votes[socket.id]) {
           delete rooms[roomId].votes[socket.id];
         }
