@@ -43,7 +43,7 @@ export default function App() {
   const [isSlashing, setIsSlashing] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
 
-  // State mới: Đếm ngược thời gian & Trạng thái kết nối mạng
+  // State đếm ngược thời gian & Trạng thái kết nối mạng
   const [timeLeft, setTimeLeft] = useState(null);
   const [isConnected, setIsConnected] = useState(true);
 
@@ -110,7 +110,7 @@ export default function App() {
   const isNight = roomState.phase === 'NIGHT';
   const isDay = roomState.phase === 'DAY';
 
-  // Lắng nghe sự kiện Socket (Room State, Timer, Reconnection, Seer, Notification)
+  // Lắng nghe sự kiện Socket
   useEffect(() => {
     socket.on('connect', () => {
       setIsConnected(true);
@@ -210,41 +210,27 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
+  // VÁ LỖI MẤT KẾT NỐI KHI ĐỔI PHA (Không unpublish ngắt quãng luồng Agora)
   useEffect(() => {
-    if (!myPlayerInfo) return;
-
+    if (!myPlayerInfo || !localTracks.audioTrack) return;
     let allowedToSpeak = myPlayerInfo.canSpeak !== false;
-    let allowedToCam = myPlayerInfo.canCam !== false;
-
     if (isNight && !isHost) {
       const amIWolf = myPlayerInfo.role === 'WOLF';
       allowedToSpeak = amIWolf;
-      allowedToCam = amIWolf;
     }
+    localTracks.audioTrack.setEnabled(allowedToSpeak && isMicOn);
+  }, [myPlayerInfo?.canSpeak, isNight, myPlayerInfo?.role, isHost, isMicOn, localTracks.audioTrack]);
 
-    if (localTracks.audioTrack) {
-      if (!allowedToSpeak) {
-        localTracks.audioTrack.setEnabled(false);
-        setIsMicOn(false);
-        agoraClient.unpublish([localTracks.audioTrack]).catch(() => {});
-      } else if (isMicOn) {
-        localTracks.audioTrack.setEnabled(true);
-        agoraClient.publish([localTracks.audioTrack]).catch(() => {});
-      }
+  useEffect(() => {
+    if (!myPlayerInfo || !localTracks.videoTrack) return;
+    let allowedToCam = myPlayerInfo.canCam !== false;
+    if (isNight && !isHost) {
+      allowedToCam = false; 
     }
+    localTracks.videoTrack.setEnabled(allowedToCam && isVideoOn);
+  }, [myPlayerInfo?.canCam, isNight, isHost, isVideoOn, localTracks.videoTrack]);
 
-    if (localTracks.videoTrack) {
-      if (!allowedToCam) {
-        localTracks.videoTrack.setEnabled(false);
-        setIsVideoOn(false);
-        agoraClient.unpublish([localTracks.videoTrack]).catch(() => {});
-      } else if (isVideoOn) {
-        localTracks.videoTrack.setEnabled(true);
-        agoraClient.publish([localTracks.videoTrack]).catch(() => {});
-      }
-    }
-  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam, isNight, myPlayerInfo?.role, isHost]);
-
+  // Khởi tạo Agora RTC
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
@@ -348,7 +334,7 @@ export default function App() {
       
       {!isConnected && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', backgroundColor: '#dc2626', color: '#fff', textAlign: 'center', padding: '10px', fontWeight: 'bold', zIndex: 9999, fontSize: '14px' }}>
-          ⚠️ Mất kết nối với máy chủ! Đang cố gắng kết nối lại tự động (trong vòng 45 giây)...
+          ⚠️ Mất kết nối với máy chủ! Đang cố gắng kết nối lại tự động...
         </div>
       )}
 
@@ -370,12 +356,6 @@ export default function App() {
           </div>
           <div className="creepy-ghost" style={{ top: '70%', right: '18%', animationDuration: '4s', animationDelay: '2s' }}>
             <div style={{ fontSize: '3rem' }}>👁️‍🗨️</div>
-          </div>
-          <div className="creepy-ghost" style={{ top: '40%', left: '45%', animationDuration: '7s', animationDelay: '3.2s' }}>
-            <div style={{ fontSize: '4rem' }}>👻</div>
-          </div>
-          <div className="creepy-ghost" style={{ top: '15%', right: '40%', animationDuration: '5.8s', animationDelay: '1.1s' }}>
-            <div style={{ fontSize: '3.8rem' }}>💀</div>
           </div>
 
           <audio ref={laughAudioRef} loop src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" />
@@ -403,9 +383,6 @@ export default function App() {
             <button onClick={copyInviteLink} style={{ padding: '8px 12px', borderRadius: '8px', background: '#1e3a8a', color: '#93c5fd', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}>📋 Link Mời</button>
             <button 
               onClick={() => { 
-                if (!isHost && isNight && myPlayerInfo?.role !== 'WOLF') {
-                  return alert('Ban đêm bạn bị cấm bật mic (chỉ Sói mới được nói chuyện)!');
-                }
                 const nextMic = !isMicOn;
                 setIsMicOn(nextMic); 
                 localTracks.audioTrack?.setEnabled(nextMic); 
@@ -416,9 +393,6 @@ export default function App() {
             </button>
             <button 
               onClick={() => { 
-                if (!isHost && isNight) {
-                  return alert('Ban đêm tất cả camera đều bị tắt tự động!');
-                }
                 const nextCam = !isVideoOn;
                 setIsVideoOn(nextCam); 
                 localTracks.videoTrack?.setEnabled(nextCam); 
@@ -441,14 +415,6 @@ export default function App() {
                 <button onClick={() => socket.emit('start_game', { roomId })} style={{ padding: '6px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🚀 Bắt Đầu Ván Đấu</button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', fontSize: '13px' }}>
-              <span>🐺 Sói: <select value={settings.wolfCount} onChange={e => socket.emit('update_settings', { roomId, settings: { wolfCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(5)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}</select></span>
-              <span>🛡️ Bảo Vệ: <select value={settings.guardCount} onChange={e => socket.emit('update_settings', { roomId, settings: { guardCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
-              <span>🔮 Tiên Tri: <select value={settings.seerCount} onChange={e => socket.emit('update_settings', { roomId, settings: { seerCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
-              <span>🧪 Phù Thủy: <select value={settings.witchCount} onChange={e => socket.emit('update_settings', { roomId, settings: { witchCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
-              <span>🦠 Người Bệnh: <select value={settings.infectedCount || 0} onChange={e => socket.emit('update_settings', { roomId, settings: { infectedCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
-              <span>🧑 Dân Làng: <select value={settings.villagerCount} onChange={e => socket.emit('update_settings', { roomId, settings: { villagerCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(8)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
-            </div>
           </div>
         )}
 
@@ -460,7 +426,7 @@ export default function App() {
               {myPlayerInfo.role === 'GUARD' && '🛡️ Bảo Vệ'}
               {myPlayerInfo.role === 'SEER' && '🔮 Tiên Tri'}
               {myPlayerInfo.role === 'WITCH' && '🧪 Phù Thủy'}
-              {myPlayerInfo.role === 'INFECTED' && '🦠 Người Bệnh (Nhiễm Dịch)'}
+              {myPlayerInfo.role === 'INFECTED' && '🦠 Người Bệnh'}
               {myPlayerInfo.role === 'VILLAGER' && '🧑 Dân Làng'}
             </strong>
           </div>
@@ -478,13 +444,9 @@ export default function App() {
               const isInfected = occupant?.role === 'INFECTED' || occupant?.statusEffect === 'INFECTED';
               
               let cardClass = '';
-              if (isShielded) {
-                cardClass = 'guard-shield-active';
-              } else if (isInfected) {
-                cardClass = 'plague-infected-card';
-              } else if (isNight) {
-                cardClass = 'target-selecting-glow';
-              }
+              if (isShielded) cardClass = 'guard-shield-active';
+              else if (isInfected) cardClass = 'plague-infected-card';
+              else if (isNight) cardClass = 'target-selecting-glow';
 
               if (!occupant) {
                 return (
@@ -494,16 +456,8 @@ export default function App() {
                 );
               }
 
-              const voteEntries = Object.entries(roomState.votes || {});
-              const votersForThisSeat = voteEntries.filter(([voterId, targetSeat]) => parseInt(targetSeat) === seatNum).map(([voterId]) => roomState.players[voterId]?.name || 'Ai đó');
-
               return (
                 <div key={seatNum} className={cardClass} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
-                  {occupant.statusEffect && (
-                    <div style={{ position: 'absolute', top: '6px', right: '6px', background: '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
-                      {occupant.statusEffect}
-                    </div>
-                  )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '6px' }}>
                     <span style={{ background: '#9333ea', color: '#fff', fontSize: '10px', padding: '2px 6px', borderRadius: '4px' }}>Ghế #{seatNum}</span>
                     {occupant.isHost && <span style={{ background: '#d97706', color: '#fff', fontSize: '9px', padding: '2px 6px', borderRadius: '4px' }}>👑 Host</span>}
@@ -538,40 +492,9 @@ export default function App() {
                             <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
                           </>
                         )}
-                        {!isHost && isMe && myPlayerInfo?.role === 'GUARD' && (
-                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️ Bảo Vệ</button>
-                        )}
-                        {!isHost && isMe && myPlayerInfo?.role === 'WOLF' && (
-                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🐺 Cắn</button>
-                        )}
-                        {!isHost && isMe && myPlayerInfo?.role === 'SEER' && (
-                          <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮 Soi</button>
-                        )}
-                        {!isHost && isMe && myPlayerInfo?.role === 'WITCH' && (
-                          <>
-                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WITCH_SAVE' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#059669', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🧪 Cứu</button>
-                            <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'WITCH_POISON' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#7c2d12', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>☠️ Độc</button>
-                          </>
-                        )}
                       </div>
                     )}
                   </div>
-
-                  {isDay && occupant.isAlive && (
-                    <div style={{ marginTop: '8px', width: '100%', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <button 
-                        onClick={() => socket.emit('vote_player', { roomId, targetSeat: seatNum })}
-                        style={{ width: '100%', padding: '4px', background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
-                      >
-                        ⚖️ Treo Cổ Ghế Này
-                      </button>
-                      {votersForThisSeat.length > 0 && (
-                        <div style={{ fontSize: '10px', color: '#fde047', textAlign: 'center' }}>
-                          Bị vote: {votersForThisSeat.join(', ')} ({votersForThisSeat.length})
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}

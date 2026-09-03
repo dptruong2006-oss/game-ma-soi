@@ -45,11 +45,9 @@ function updateMediaPermissions(room) {
 
   Object.values(room.players).forEach(player => {
     if (isNight) {
-      // Ban đêm: Chỉ Sói còn sống mới được mở mic. Tất cả tắt cam.
       player.canSpeak = (player.role === 'WOLF' && player.isAlive);
       player.canCam = false;
     } else {
-      // Ban ngày / Lobby: Người còn sống được phép bật mic và cam
       player.canSpeak = player.isAlive;
       player.canCam = player.isAlive;
     }
@@ -72,7 +70,6 @@ function checkWinCondition(room) {
   return null;
 }
 
-// Hàm quản lý chuyển phase tự động bằng Server-side Timer
 function clearRoomTimer(room) {
   if (room.phaseTimer) {
     clearInterval(room.phaseTimer);
@@ -103,7 +100,7 @@ function startPhaseTimer(roomId, durationSeconds, nextPhaseCallback) {
   }, 1000);
 }
 
-// Hàm xử lý tự động khi hết giờ ban ngày (Tự động chốt vote treo cổ)
+// Hàm xử lý tự động khi hết giờ ban ngày (Chốt vote theo seat)
 function handleDayTimeout(roomId) {
   const room = rooms[roomId];
   if (!room || room.phase !== 'DAY') return;
@@ -111,6 +108,7 @@ function handleDayTimeout(roomId) {
   const votes = room.votes || {};
   const voteCounts = {};
 
+  // votes lưu theo seat: { voterSeat: targetSeat }
   Object.values(votes).forEach(targetSeat => {
     voteCounts[targetSeat] = (voteCounts[targetSeat] || 0) + 1;
   });
@@ -153,7 +151,6 @@ function handleDayTimeout(roomId) {
     room.witchPoisonTarget = null;
     Object.values(room.players).forEach(p => { p.statusEffect = null; });
     
-    // Sử dụng thời gian đêm tùy chỉnh từ settings
     const nightTime = room.settings.nightDuration || 60;
     startPhaseTimer(roomId, nightTime, handleNightTimeout);
   }
@@ -162,7 +159,6 @@ function handleDayTimeout(roomId) {
   io.to(roomId).emit('room_state_update', room);
 }
 
-// Hàm xử lý tự động khi hết giờ ban đêm
 function handleNightTimeout(roomId) {
   const room = rooms[roomId];
   if (!room || room.phase !== 'NIGHT') return;
@@ -191,7 +187,6 @@ function handleNightTimeout(roomId) {
     }
   });
 
-  // Lưu lại lịch sử bảo vệ để áp dụng luật không bảo vệ 2 đêm liên tiếp
   room.lastGuardedSeat = room.guardTarget;
 
   if (deadSeatsThisNight.length === 0) {
@@ -210,8 +205,6 @@ function handleNightTimeout(roomId) {
   }
 
   room.phase = 'DAY';
-  
-  // Sử dụng thời gian ngày tùy chỉnh từ settings
   const dayTime = room.settings.dayDuration || 120;
   startPhaseTimer(roomId, dayTime, handleDayTimeout);
 
@@ -223,7 +216,6 @@ io.on('connection', (socket) => {
   socket.use(([event, ...args], next) => {
     const now = Date.now();
     if (!socket.lastActionTime) socket.lastActionTime = {};
-    
     if (socket.lastActionTime[event] && now - socket.lastActionTime[event] < 300) {
       return; 
     }
@@ -257,8 +249,8 @@ io.on('connection', (socket) => {
           witchCount: 1,
           infectedCount: 0,
           villagerCount: 2,
-          nightDuration: 60, // Mặc định 60 giây đêm
-          dayDuration: 120   // Mặc định 120 giây ngày
+          nightDuration: 60,
+          dayDuration: 120
         }
       };
     }
@@ -270,11 +262,13 @@ io.on('connection', (socket) => {
       delete room.disconnectTimeouts[seat];
     }
 
+    // Xóa player cũ chiếm cùng seat nếu có
     const existingPlayerAtSeat = Object.values(room.players).find(p => p.seat === seat);
     if (existingPlayerAtSeat && existingPlayerAtSeat.id !== socket.id) {
       delete room.players[existingPlayerAtSeat.id];
     }
 
+    // Xác định quyền Host chuẩn theo seat hoặc người đầu tiên
     const existingHost = Object.values(room.players).find(p => p.isHost);
     let finalIsHost = !!isHost;
     if (!existingHost && Object.keys(room.players).length === 0) {
@@ -282,7 +276,7 @@ io.on('connection', (socket) => {
     } else if (existingHost && existingHost.seat === seat) {
       finalIsHost = true;
     } else {
-      finalIsHost = false;
+      finalIsHost = existingHost ? existingHost.isHost : finalIsHost;
     }
 
     room.players[socket.id] = {
@@ -367,7 +361,6 @@ io.on('connection', (socket) => {
     updateMediaPermissions(room);
     io.to(roomId).emit('room_state_update', room);
     
-    // Sử dụng thời gian đêm tùy chỉnh từ settings
     const nightTime = room.settings.nightDuration || 60;
     startPhaseTimer(roomId, nightTime, handleNightTimeout);
   });
@@ -379,7 +372,6 @@ io.on('connection', (socket) => {
 
       if (room.phase === 'NIGHT' && phase === 'DAY') {
         let deadSeatsThisNight = [];
-
         let bittenSeat = room.wolfTarget;
         let guardedSeat = room.guardTarget;
         let healedSeat = room.witchHealTarget;
@@ -403,7 +395,6 @@ io.on('connection', (socket) => {
           }
         });
 
-        // Lưu lại lịch sử bảo vệ
         room.lastGuardedSeat = room.guardTarget;
 
         if (deadSeatsThisNight.length === 0) {
@@ -444,6 +435,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Khắc phục: Lưu vote theo seat của người chơi thay vì socket.id để tránh lỗi mất/trùng phiếu khi reconnect
   const handleVoteAction = (roomId, targetSeat) => {
     const room = rooms[roomId];
     if (!room || room.phase !== 'DAY') return;
@@ -452,7 +444,7 @@ io.on('connection', (socket) => {
     if (!voter || !voter.isAlive) return;
 
     if (!room.votes) room.votes = {};
-    room.votes[socket.id] = targetSeat;
+    room.votes[voter.seat] = targetSeat;
 
     io.to(roomId).emit('room_state_update', room);
   };
@@ -479,7 +471,6 @@ io.on('connection', (socket) => {
     if (!targetPlayer) return;
 
     if (actionType === 'GUARD' && player.role === 'GUARD') {
-      // Luật chuẩn: Bảo vệ không được bảo vệ cùng một người trong 2 đêm liên tiếp
       if (room.lastGuardedSeat === targetSeat) {
         return socket.emit('notification', { message: '🚫 Bạn không thể bảo vệ cùng một người trong 2 đêm liên tiếp!' });
       }
@@ -495,7 +486,6 @@ io.on('connection', (socket) => {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
 
-      // Tự động báo cho Phù Thủy biết mục tiêu đang bị Sói cắn
       const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
       if (witchPlayer) {
         io.to(witchPlayer.id).emit('witch_target_info', { targetSeat: targetSeat });
@@ -509,7 +499,7 @@ io.on('connection', (socket) => {
         return socket.emit('notification', { message: 'Đêm nay Sói chưa chọn cắn ai để cứu cả!' });
       }
       player.hasUsedHeal = true;
-      room.witchHealTarget = room.wolfTarget; // Tự động cứu đúng nạn nhân sói cắn
+      room.witchHealTarget = room.wolfTarget;
       const savedPlayer = Object.values(room.players).find(p => p.seat === room.wolfTarget);
       if (savedPlayer) savedPlayer.statusEffect = 'WITCH_SAVED';
     } 
@@ -546,8 +536,10 @@ io.on('connection', (socket) => {
         room.disconnectTimeouts[seat] = setTimeout(() => {
           if (room.players[socket.id] && room.players[socket.id].isDisconnected) {
             delete room.players[socket.id];
-            if (room.votes && room.votes[socket.id]) {
-              delete room.votes[socket.id];
+            
+            // Xóa phiếu bầu theo seat khi player thực sự bị remove
+            if (room.votes && room.votes[seat]) {
+              delete room.votes[seat];
             }
 
             if (Object.keys(room.players).length === 0) {
