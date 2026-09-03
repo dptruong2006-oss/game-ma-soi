@@ -1,56 +1,91 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* === RESET / GLOBAL FIX CHO TRANG GAME === */
-* {
+*, ::before, ::after {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  height: 100%;
   background-color: #0f172a;
   color: #fff;
-  font-family: sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* === AGORA VIDEO PLAYER CONTAINER FIX === */
+.agora-video-player {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.agora-video-player video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
 }
 
 /* === HIỆU ỨNG CHÉM ANIME (ANIME SLASH) === */
 @keyframes animeSlash {
-  0% { transform: translate(-100%, 100%) rotate(-45deg); opacity: 0; width: 0%; }
-  25% { opacity: 1; width: 140%; }
-  75% { opacity: 1; transform: translate(80%, -80%) rotate(-45deg); width: 140%; filter: drop-shadow(0 0 25px #ff1a1a); }
-  100% { transform: translate(100%, -100%) rotate(-45deg); opacity: 0; width: 0%; }
+  0% { 
+    transform: translate(-100%, 100%) rotate(-45deg); 
+    opacity: 0; 
+    width: 0%; 
+  }
+  25% { 
+    opacity: 1; 
+    width: 120%; 
+  }
+  75% { 
+    opacity: 1; 
+    transform: translate(50%, -50%) rotate(-45deg); 
+    width: 120%; 
+    filter: drop-shadow(0 0 25px #ff1a1a); 
+  }
+  100% { 
+    transform: translate(100%, -100%) rotate(-45deg); 
+    opacity: 0; 
+    width: 0%; 
+  }
 }
 
 .slash-effect {
   position: fixed; 
   top: 50%; 
-  left: -50%; 
+  left: -20%; 
   height: 6px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), #ff1a1a, transparent);
-  box-shadow: 0 0 30px #ff0000; 
+  width: 140vw;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), #ff1a1a, transparent);
+  box-shadow: 0 0 35px #ff0000; 
   z-index: 9999; 
   pointer-events: none;
   animation: animeSlash 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  will-change: transform, opacity;
 }
 
 /* === HIỆU ỨNG RUNG MÀN HÌNH (SCREEN SHAKE) === */
 @keyframes screenShake {
   0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  15% { transform: translate(-7px, 7px) rotate(-0.5deg); }
-  30% { transform: translate(7px, -6px) rotate(0.5deg); }
-  45% { transform: translate(-5px, -3px) rotate(-0.3deg); }
-  60% { transform: translate(5px, 4px) rotate(0.3deg); }
+  15% { transform: translate(-6px, 6px) rotate(-0.5deg); }
+  30% { transform: translate(6px, -5px) rotate(0.5deg); }
+  45% { transform: translate(-4px, -3px) rotate(-0.3deg); }
+  60% { transform: translate(4px, 4px) rotate(0.3deg); }
   75% { transform: translate(-2px, -2px) rotate(0deg); }
 }
 
 .card-shake { 
-  animation: screenShake 0.3s ease-in-out; 
+  animation: screenShake 0.35s ease-in-out; 
+  will-change: transform;
 }
 
-/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM (CƠ BẢN) === */
+/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM === */
 @keyframes floatGhost {
   0% {
     transform: translateY(0px) translateX(0px) rotate(0deg) scale(0.8);
@@ -104,6 +139,7 @@ body {
   pointer-events: none;
   z-index: 8;
   animation: pulseOverlay 2.5s infinite alternate ease-in-out;
+  will-change: opacity;
 }
 
 /* === HIỆU ỨNG SẤM SÉT CHỚP LÓE BAN ĐÊM === */
@@ -121,12 +157,13 @@ body {
   pointer-events: none;
   z-index: 15;
   animation: lightningFlash 6s infinite ease-in-out;
+  will-change: opacity, background;
 }
 
 /* === HIỆU ỨNG KHIÊN BẢO VỆ (GUARD SHIELD) === */
 @keyframes shieldPulse {
   0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.85); transform: scale(1); }
-  70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); transform: scale(1.03); }
+  70% { box-shadow: 0 0 0 18px rgba(59, 130, 246, 0); transform: scale(1.02); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); transform: scale(1); }
 }
 
@@ -134,9 +171,10 @@ body {
   border: 2px solid #3b82f6 !important;
   animation: shieldPulse 1.8s infinite ease-in-out;
   background: rgba(59, 130, 246, 0.22) !important;
+  will-change: transform, box-shadow;
 }
 
-/* === HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION ANIMATION) === */
+/* === HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION) === */
 @keyframes potionFlyAndSplash {
   0% { transform: translateY(45px) scale(0.2); opacity: 0; }
   50% { transform: translateY(-12px) scale(1.3); opacity: 1; filter: drop-shadow(0 0 30px #c084fc); }
@@ -145,6 +183,7 @@ body {
 
 .witch-potion-effect {
   animation: potionFlyAndSplash 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  will-change: transform, opacity;
 }
 
 /* === HIỆU ỨNG VÙNG CHỌN MỤC TIÊU KỲ BÍ (TARGET GLOW) === */
@@ -155,6 +194,7 @@ body {
 
 .target-selecting-glow {
   animation: targetGlow 1.2s infinite ease-in-out;
+  will-change: border-color, box-shadow;
 }
 
 /* === HIỆU ỨNG NHÂN VẬT NGƯỜI BỆNH / NHIỄM ĐỘC (INFECTED) === */
@@ -167,9 +207,10 @@ body {
   border: 2px dashed #22c55e !important;
   animation: plaguePulse 1.8s infinite ease-in-out;
   background: rgba(34, 197, 94, 0.18) !important;
+  will-change: border-color, box-shadow;
 }
 
-/* === HIỆU ỨNG CHIẾN THẮNG === */
+/* === HIỆU ỨNG CHIẾN THẮNG (WINNER BANNER) === */
 @keyframes winGlow {
   0%, 100% { filter: drop-shadow(0 0 25px rgba(234, 179, 8, 0.65)); transform: scale(1); }
   50% { filter: drop-shadow(0 0 45px rgba(234, 179, 8, 1)); transform: scale(1.02); }
@@ -177,26 +218,30 @@ body {
 
 .winner-banner-glow {
   animation: winGlow 1.8s infinite ease-in-out;
+  will-change: transform, filter;
 }
 
 /* === GLASSMORPHISM & SCROLLBAR === */
 .wolf-chat-container, .ghost-chat-container {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(15, 23, 42, 0.6);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(148, 163, 184, 0.4);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(192, 132, 252, 0.7);
 }
