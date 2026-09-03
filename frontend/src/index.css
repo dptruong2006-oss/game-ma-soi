@@ -33,7 +33,7 @@
   animation: screenShake 0.4s ease-in-out 0.2s; 
 }
 
-/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM === */
+/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM (CƠ BẢN) === */
 @keyframes floatGhost {
   0% {
     transform: translateY(0px) translateX(0px) rotate(0deg) scale(0.8);
@@ -56,6 +56,51 @@
   z-index: 5;
   filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
   will-change: transform, opacity;
+}
+
+/* === HIỆU ỨNG BẦY HỒN MA RÙNG RỢN & SƯƠNG MÙ MÁU (BỔ SUNG) === */
+@keyframes spookyDrift {
+  0% { transform: translateY(0px) translateX(0px) rotate(-5deg) scale(0.7); opacity: 0.1; }
+  30% { transform: translateY(-60px) translateX(40px) rotate(15deg) scale(1.2); opacity: 0.8; }
+  70% { transform: translateY(-120px) translateX(-30px) rotate(-10deg) scale(1); opacity: 0.5; }
+  100% { transform: translateY(-180px) translateX(20px) rotate(10deg) scale(0.6); opacity: 0; }
+}
+
+.creepy-ghost {
+  position: absolute;
+  pointer-events: none;
+  animation: spookyDrift 5s ease-in-out infinite;
+  filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.9));
+  z-index: 10;
+}
+
+@keyframes pulseOverlay {
+  0% { opacity: 0.4; }
+  100% { opacity: 0.8; }
+}
+
+.night-blood-overlay {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 120px rgba(185, 28, 28, 0.5);
+  pointer-events: none;
+  z-index: 8;
+  animation: pulseOverlay 3s infinite alternate;
+}
+
+/* === HIỆU ỨNG SẤM SÉT CHỚP LÓE BAN ĐÊM === */
+@keyframes lightningFlash {
+  0%, 90%, 95%, 100% { opacity: 0; background: transparent; }
+  92% { opacity: 0.85; background: rgba(255, 255, 255, 0.9); }
+  96% { opacity: 0.5; background: rgba(147, 197, 253, 0.6); }
+}
+
+.lightning-effect {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  animation: lightningFlash 7s infinite ease-in-out;
 }
 
 /* === HIỆU ỨNG KHIÊN BẢO VỆ (GUARD) === */
@@ -90,4 +135,16 @@
 
 .target-selecting-glow {
   animation: targetGlow 1.5s infinite ease-in-out;
+}
+
+/* === HIỆU ỨNG NHÂN VẬT NGƯỜI BỆNH / NHIỄM ĐỘC (INFECTED) === */
+@keyframes plaguePulse {
+  0%, 100% { border-color: rgba(34, 197, 94, 0.5); box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
+  50% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 22px rgba(34, 197, 94, 0.8); }
+}
+
+.plague-infected-card {
+  border: 2px dashed #22c55e !important;
+  animation: plaguePulse 2s infinite ease-in-out;
+  background: rgba(34, 197, 94, 0.12) !important;
 }

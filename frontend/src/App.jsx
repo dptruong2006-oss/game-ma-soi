@@ -56,7 +56,7 @@ export default function App() {
     wolfMessages: [],
     ghostMessages: [],
     votes: {},
-    settings: { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1, villagerCount: 2 }
+    settings: { wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1, infectedCount: 0, villagerCount: 2 }
   });
 
   const [localTracks, setLocalTracks] = useState({ audioTrack: null, videoTrack: null });
@@ -64,7 +64,7 @@ export default function App() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
 
-  // Âm thanh hiệu ứng chuyển Đêm / Ngày
+  // Âm thanh hiệu ứng chuyển Đêm / Ngày (Tiếng cười ma quái & gió hú khi sang đêm)
   const playSoundEffect = (phase) => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -166,17 +166,14 @@ export default function App() {
   useEffect(() => {
     if (!myPlayerInfo) return;
     
-    // Xử lý Mic
     if (localTracks.audioTrack) {
       const allowedToSpeak = myPlayerInfo.canSpeak !== false;
-      // Nếu server cấm nói (ví dụ dân thường ban đêm) nhưng local đang bật -> ép tắt và đồng bộ state
       if (!allowedToSpeak && isMicOn) {
         localTracks.audioTrack.setEnabled(false);
         setIsMicOn(false);
       }
     }
 
-    // Xử lý Camera
     if (localTracks.videoTrack) {
       const allowedToCam = myPlayerInfo.canCam !== false;
       if (!allowedToCam && isVideoOn) {
@@ -276,27 +273,44 @@ export default function App() {
       {/* Hiệu ứng đường chém anime khi chuyển đêm */}
       {isSlashing && <div className="slash-effect" />}
 
-      {/* Hiệu ứng Hồn Ma Anime trắng bay lượn & Nhạc nền kinh dị dài hơi khi sang Ban Đêm */}
+      {/* HIỆU ỨNG BAN ĐÊM: Sấm sét, sương mù máu, bầy hồn ma rùng rợn & âm thanh tiếng cười ma quái */}
       {isNight && (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
-          <div className="anime-ghost-floating" style={{ top: '15%', left: '8%', animationDuration: '7s' }}>
-            <div style={{ fontSize: '3rem', opacity: 0.75 }}>👻</div>
+          <div className="night-blood-overlay" />
+          <div className="lightning-effect" />
+
+          {/* Bầy hồn ma dày đặc rùng rợn */}
+          <div className="creepy-ghost" style={{ top: '10%', left: '5%', animationDuration: '4.5s', animationDelay: '0s' }}>
+            <div style={{ fontSize: '3.5rem' }}>👻</div>
           </div>
-          <div className="anime-ghost-floating" style={{ top: '55%', right: '10%', animationDuration: '9s', animationDelay: '2s' }}>
-            <div style={{ fontSize: '4rem', opacity: 0.8 }}>👻</div>
+          <div className="creepy-ghost" style={{ top: '65%', left: '12%', animationDuration: '6s', animationDelay: '1.5s' }}>
+            <div style={{ fontSize: '4.5rem' }}>💀</div>
           </div>
-          <div className="anime-ghost-floating" style={{ top: '35%', right: '35%', animationDuration: '8s', animationDelay: '1s' }}>
-            <div style={{ fontSize: '2.5rem', opacity: 0.65 }}>👻</div>
+          <div className="creepy-ghost" style={{ top: '25%', right: '8%', animationDuration: '5.2s', animationDelay: '0.8s' }}>
+            <div style={{ fontSize: '5rem' }}>👻</div>
           </div>
-          <div className="anime-ghost-floating" style={{ top: '75%', left: '25%', animationDuration: '10s', animationDelay: '3s' }}>
-            <div style={{ fontSize: '3.5rem', opacity: 0.7 }}>👻</div>
+          <div className="creepy-ghost" style={{ top: '70%', right: '18%', animationDuration: '4s', animationDelay: '2s' }}>
+            <div style={{ fontSize: '3rem' }}>👁️‍🗨️</div>
+          </div>
+          <div className="creepy-ghost" style={{ top: '40%', left: '45%', animationDuration: '7s', animationDelay: '3.2s' }}>
+            <div style={{ fontSize: '4rem' }}>👻</div>
+          </div>
+          <div className="creepy-ghost" style={{ top: '15%', right: '40%', animationDuration: '5.8s', animationDelay: '1.1s' }}>
+            <div style={{ fontSize: '3.8rem' }}>💀</div>
           </div>
 
+          {/* Âm thanh tiếng cười ma quái & gió hú */}
+          <audio 
+            autoPlay 
+            loop 
+            src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" 
+            onPlay={(e) => { e.currentTarget.volume = 0.5; }} 
+          />
           <audio 
             autoPlay 
             loop 
             src="https://actions.google.com/sounds/v1/ambiences/creepy_wind.ogg" 
-            onPlay={(e) => { e.currentTarget.volume = 0.35; }} 
+            onPlay={(e) => { e.currentTarget.volume = 0.3; }} 
           />
         </div>
       )}
@@ -345,7 +359,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Bảng điều khiển Quản Trò độc nhất */}
+        {/* Bảng điều khiển Quản Trò độc nhất (Bổ sung Người Bệnh) */}
         {isHost && (
           <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #d97706', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -362,6 +376,7 @@ export default function App() {
               <span>🛡️ Bảo Vệ: <select value={settings.guardCount} onChange={e => socket.emit('update_settings', { roomId, settings: { guardCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
               <span>🔮 Tiên Tri: <select value={settings.seerCount} onChange={e => socket.emit('update_settings', { roomId, settings: { seerCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
               <span>🧪 Phù Thủy: <select value={settings.witchCount} onChange={e => socket.emit('update_settings', { roomId, settings: { witchCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
+              <span>🦠 Người Bệnh: <select value={settings.infectedCount || 0} onChange={e => socket.emit('update_settings', { roomId, settings: { infectedCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(3)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
               <span>🧑 Dân Làng: <select value={settings.villagerCount} onChange={e => socket.emit('update_settings', { roomId, settings: { villagerCount: parseInt(e.target.value) } })} style={{ background: '#020617', color: '#fff', border: '1px solid #475569' }}>{[...Array(8)].map((_, i) => <option key={i} value={i}>{i}</option>)}</select></span>
             </div>
           </div>
@@ -376,6 +391,7 @@ export default function App() {
               {myPlayerInfo.role === 'GUARD' && '🛡️ Bảo Vệ'}
               {myPlayerInfo.role === 'SEER' && '🔮 Tiên Tri'}
               {myPlayerInfo.role === 'WITCH' && '🧪 Phù Thủy'}
+              {myPlayerInfo.role === 'INFECTED' && '🦠 Người Bệnh (Nhiễm Dịch)'}
               {myPlayerInfo.role === 'VILLAGER' && '🧑 Dân Làng'}
             </strong>
           </div>
@@ -393,7 +409,16 @@ export default function App() {
               const remoteUser = occupant ? remoteUsers.find(u => u.uid === occupant.id) : null;
 
               const isShielded = occupant?.statusEffect === 'GUARDED';
-              const cardClass = isShielded ? 'guard-shield-active' : (isNight ? 'target-selecting-glow' : '');
+              const isInfected = occupant?.role === 'INFECTED' || occupant?.statusEffect === 'INFECTED';
+              
+              let cardClass = '';
+              if (isShielded) {
+                cardClass = 'guard-shield-active';
+              } else if (isInfected) {
+                cardClass = 'plague-infected-card';
+              } else if (isNight) {
+                cardClass = 'target-selecting-glow';
+              }
 
               if (!occupant) {
                 return (
@@ -429,10 +454,8 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '6px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{occupant.name} {isMe ? "(Bạn)" : ""}</span>
                     
-                    {/* Bảng Hành Động Đêm (Dành cho Quản Trò hoặc Người Chơi đúng vai trò đang sống) */}
                     {isNight && occupant.isAlive && (
                       <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-                        {/* Host có quyền test mọi action */}
                         {isHost && (
                           <>
                             <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
@@ -440,7 +463,6 @@ export default function App() {
                             <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#9333ea', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🔮</button>
                           </>
                         )}
-                        {/* Người chơi tự thao tác theo đúng vai trò của mình */}
                         {!isHost && isMe && myPlayerInfo?.role === 'GUARD' && (
                           <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '3px 6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️ Bảo Vệ</button>
                         )}
@@ -460,7 +482,6 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Giao diện Vote / Treo cổ vào Ban Ngày */}
                   {isDay && occupant.isAlive && (
                     <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
                       <span style={{ fontSize: '11px', color: '#facc15', marginBottom: '4px' }}>
@@ -481,7 +502,7 @@ export default function App() {
             })}
           </main>
 
-          {/* Khung Chat Riêng Dành Cho Sói (Ban đêm) hoặc Hồn Ma (Khi đã chết) */}
+          {/* Khung Chat Riêng Dành Cho Sói hoặc Hồn Ma */}
           {((myPlayerInfo?.role === 'WOLF' && isNight) || isDead) && (
             <aside style={{ background: '#18181b', border: '1px solid #71717a', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', height: '480px' }}>
               <h3 style={{ color: isDead ? '#a1a1aa' : '#ef4444', margin: '0 0 10px 0', fontSize: '15px' }}>
@@ -524,15 +545,14 @@ export default function App() {
                       socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() });
                       setWolfInputMsg('');
                     }
-                  }} 
-                  style={{ padding: '8px 12px', background: isDead ? '#52525b' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                  }}
+                  style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   Gửi
                 </button>
               </div>
             </aside>
           )}
-
         </div>
       </div>
     </div>
