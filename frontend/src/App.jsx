@@ -215,25 +215,18 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // Đồng bộ trạng thái phần cứng Agora với quyền của người chơi
+  // Đồng bộ trạng thái phần cứng Agora dựa theo quyền chuẩn từ server trả về (Đã hỗ trợ Sói bật mic/cam ban đêm)
   useEffect(() => {
     if (!myPlayerInfo || !localTracks.audioTrack) return;
-    let allowedToSpeak = myPlayerInfo.canSpeak !== false;
-    if (isNight && !isHost) {
-      const amIWolf = myPlayerInfo.role === 'WOLF';
-      allowedToSpeak = amIWolf;
-    }
+    const allowedToSpeak = myPlayerInfo.canSpeak !== false;
     localTracks.audioTrack.setEnabled(allowedToSpeak && isMicOn);
-  }, [myPlayerInfo?.canSpeak, isNight, myPlayerInfo?.role, isHost, isMicOn, localTracks.audioTrack]);
+  }, [myPlayerInfo?.canSpeak, isMicOn, localTracks.audioTrack]);
 
   useEffect(() => {
     if (!myPlayerInfo || !localTracks.videoTrack) return;
-    let allowedToCam = myPlayerInfo.canCam !== false;
-    if (isNight && !isHost) {
-      allowedToCam = false; 
-    }
+    const allowedToCam = myPlayerInfo.canCam !== false;
     localTracks.videoTrack.setEnabled(allowedToCam && isVideoOn);
-  }, [myPlayerInfo?.canCam, isNight, isHost, isVideoOn, localTracks.videoTrack]);
+  }, [myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
   // Khởi tạo Agora RTC
   useEffect(() => {
@@ -332,8 +325,6 @@ export default function App() {
     );
   }
 
-  const settings = roomState.settings || {};
-
   return (
     <div className={isShaking ? 'card-shake' : ''} style={{ backgroundColor: isNight ? '#090d16' : '#0f172a', color: '#fff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', transition: 'background-color 0.8s ease', position: 'relative', overflow: 'hidden' }}>
       
@@ -375,7 +366,7 @@ export default function App() {
             <div>
               <h1 style={{ margin: 0, fontSize: '18px', color: '#c084fc' }}>PHÒNG: {roomId}</h1>
               <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>Thời gian: <span style={{ color: isNight ? '#a78bfa' : '#facc15' }}>{isNight ? '🌙 BAN ĐÊM (RÙNG RỢN)' : '☀️ BAN NGÀY (SÁNG SỦA)'}</span></span>
+                <span>Thời gian: <span style={{ color: isNight ? '#a78bfa' : '#facc15' }}>{isNight ? '🌙 BAN ĐÊM (Sói hội thoại)' : '☀️ BAN NGÀY (SÁNG SỦA)'}</span></span>
                 {timeLeft !== null && (
                   <span style={{ background: '#334155', padding: '2px 8px', borderRadius: '4px', color: '#38bdf8', fontSize: '13px' }}>
                     ⏱️ {timeLeft}s
@@ -418,7 +409,6 @@ export default function App() {
                 <button onClick={() => socket.emit('change_phase', { roomId, phase: 'DAY' })} style={{ padding: '6px 12px', background: '#b45309', color: '#fef3c7', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>☀️ Đổi sang Ngày</button>
                 <button onClick={() => socket.emit('clear_votes', { roomId })} style={{ padding: '6px 12px', background: '#78716c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🧹 Xóa Bảng Vote</button>
                 <button onClick={() => socket.emit('start_game', { roomId })} style={{ padding: '6px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🚀 Bắt Đầu Ván Đấu</button>
-                <button onClick={() => socket.emit('reset_game', { roomId })} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Làm Mới Ván Đấu</button>
               </div>
             </div>
           </div>
@@ -428,7 +418,7 @@ export default function App() {
           <div style={{ background: '#3b0764', border: '1px solid #a855f7', padding: '10px 20px', borderRadius: '10px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>🔒 Vai trò bí mật của bạn:</span>
             <strong style={{ color: '#facc15' }}>
-              {myPlayerInfo.role === 'WOLF' && '🐺 Sói Ma Sói'}
+              {myPlayerInfo.role === 'WOLF' && '🐺 Sói (Đêm nay bạn được bật cam/mic bàn chiến thuật)'}
               {myPlayerInfo.role === 'GUARD' && '🛡️ Bảo Vệ'}
               {myPlayerInfo.role === 'SEER' && '🔮 Tiên Tri'}
               {myPlayerInfo.role === 'WITCH' && '🧪 Phù Thủy'}
@@ -489,7 +479,6 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginTop: '6px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{occupant.name} {isMe ? "(Bạn)" : ""}</span>
                     
-                    {/* Khu vực hành động Vote (Ban ngày) hoặc Kỹ năng (Ban đêm) */}
                     <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
                       {isDay && occupant.isAlive && !isMe && (
                         <button onClick={() => socket.emit('cast_vote', { roomId, targetSeat: seatNum })} style={{ fontSize: '9px', padding: '2px 6px', background: '#eab308', color: '#000', border: 'none', borderRadius: '3px', fontWeight: 'bold', cursor: 'pointer' }}>🗳️ Vote</button>
@@ -497,7 +486,6 @@ export default function App() {
 
                       {isNight && occupant.isAlive && (
                         <>
-                          {/* Nút hành động dành cho Host */}
                           {isHost && (
                             <>
                               <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 4px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️</button>
@@ -506,7 +494,6 @@ export default function App() {
                             </>
                           )}
 
-                          {/* Nút hành động chuẩn theo Role cá nhân */}
                           {!isHost && myPlayerInfo?.role === 'GUARD' && (
                             <button onClick={() => socket.emit('apply_night_action', { roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={{ fontSize: '9px', padding: '2px 6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '3px', cursor: 'pointer' }}>🛡️ Bảo vệ</button>
                           )}

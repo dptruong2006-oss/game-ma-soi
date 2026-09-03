@@ -39,14 +39,15 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
-// Cập nhật quyền Mic (canSpeak) và Cam (canCam)
+// Cập nhật quyền Mic (canSpeak) và Cam (canCam) - Đã sửa cho phép Sói bật cam/mic ban đêm
 function updateMediaPermissions(room) {
   const isNight = room.phase === 'NIGHT';
 
   Object.values(room.players).forEach(player => {
     if (isNight) {
-      player.canSpeak = (player.role === 'WOLF' && player.isAlive);
-      player.canCam = false;
+      const isWolf = (player.role === 'WOLF');
+      player.canSpeak = (isWolf && player.isAlive);
+      player.canCam = (isWolf && player.isAlive);
     } else {
       player.canSpeak = player.isAlive;
       player.canCam = player.isAlive;
