@@ -43,6 +43,10 @@ export default function App() {
   const [isSlashing, setIsSlashing] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
 
+  // State mới: Đếm ngược thời gian & Trạng thái kết nối mạng
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
+
   const [roomId, setRoomId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('room') || 'phong-mac-dinh-123';
@@ -105,32 +109,26 @@ export default function App() {
   const myPlayerInfo = roomState.players[socket.id];
   const isNight = roomState.phase === 'NIGHT';
   const isDay = roomState.phase === 'DAY';
-  const isDead = myPlayerInfo && myPlayerInfo.isAlive === false;
 
-  // Điều khiển phát/dừng âm thanh ban đêm theo phase NIGHT chuẩn xác & vừa tai
+  // Lắng nghe sự kiện Socket (Room State, Timer, Reconnection, Seer, Notification)
   useEffect(() => {
-    if (isNight) {
-      if (laughAudioRef.current) {
-        laughAudioRef.current.volume = 0.3;
-        laughAudioRef.current.play().catch(() => {});
+    socket.on('connect', () => {
+      setIsConnected(true);
+      if (hasJoined && roomId) {
+        socket.emit('join_room', { roomId, name: playerName.trim(), seat: selectedSeat, isHost });
       }
-      if (windAudioRef.current) {
-        windAudioRef.current.volume = 0.25;
-        windAudioRef.current.play().catch(() => {});
-      }
-    } else {
-      if (laughAudioRef.current) {
-        laughAudioRef.current.pause();
-        laughAudioRef.current.currentTime = 0;
-      }
-      if (windAudioRef.current) {
-        windAudioRef.current.pause();
-        windAudioRef.current.currentTime = 0;
-      }
-    }
-  }, [isNight]);
+    });
 
-  useEffect(() => {
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('timer_update', (data) => {
+      if (data && typeof data.timeLeft === 'number') {
+        setTimeLeft(data.timeLeft);
+      }
+    });
+
     socket.on('room_state_update', (state) => {
       if (state && state.phase && state.phase !== roomState.phase) {
         playSoundEffect(state.phase);
@@ -155,11 +153,37 @@ export default function App() {
     });
 
     return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('timer_update');
       socket.off('room_state_update');
       socket.off('seer_result');
       socket.off('notification');
     };
-  }, [roomState.phase]);
+  }, [roomState.phase, hasJoined, roomId, playerName, selectedSeat, isHost]);
+
+  // Điều khiển phát/dừng âm thanh ban đêm theo phase NIGHT
+  useEffect(() => {
+    if (isNight) {
+      if (laughAudioRef.current) {
+        laughAudioRef.current.volume = 0.3;
+        laughAudioRef.current.play().catch(() => {});
+      }
+      if (windAudioRef.current) {
+        windAudioRef.current.volume = 0.25;
+        windAudioRef.current.play().catch(() => {});
+      }
+    } else {
+      if (laughAudioRef.current) {
+        laughAudioRef.current.pause();
+        laughAudioRef.current.currentTime = 0;
+      }
+      if (windAudioRef.current) {
+        windAudioRef.current.pause();
+        windAudioRef.current.currentTime = 0;
+      }
+    }
+  }, [isNight]);
 
   const handleJoinGame = (e) => {
     e.preventDefault();
@@ -322,6 +346,12 @@ export default function App() {
   return (
     <div className={isShaking ? 'card-shake' : ''} style={{ backgroundColor: isNight ? '#090d16' : '#0f172a', color: '#fff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', transition: 'background-color 0.8s ease', position: 'relative', overflow: 'hidden' }}>
       
+      {!isConnected && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', backgroundColor: '#dc2626', color: '#fff', textAlign: 'center', padding: '10px', fontWeight: 'bold', zIndex: 9999, fontSize: '14px' }}>
+          ⚠️ Mất kết nối với máy chủ! Đang cố gắng kết nối lại tự động (trong vòng 45 giây)...
+        </div>
+      )}
+
       {isSlashing && <div className="slash-effect" />}
 
       {isNight && (
@@ -359,8 +389,13 @@ export default function App() {
             <button onClick={handleLeaveRoom} style={{ padding: '8px 12px', borderRadius: '8px', border: 'none', background: '#475569', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>⬅️ Thoát</button>
             <div>
               <h1 style={{ margin: 0, fontSize: '18px', color: '#c084fc' }}>PHÒNG: {roomId}</h1>
-              <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: 'bold' }}>
-                Thời gian: <span style={{ color: isNight ? '#a78bfa' : '#facc15' }}>{isNight ? '🌙 BAN ĐÊM (RÙNG RỢN)' : '☀️ BAN NGÀY (SÁNG SỦA)'}</span>
+              <p style={{ margin: '4px 0 0 0', fontSize: '14px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>Thời gian: <span style={{ color: isNight ? '#a78bfa' : '#facc15' }}>{isNight ? '🌙 BAN ĐÊM (RÙNG RỢN)' : '☀️ BAN NGÀY (SÁNG SỦA)'}</span></span>
+                {timeLeft !== null && (
+                  <span style={{ background: '#334155', padding: '2px 8px', borderRadius: '4px', color: '#38bdf8', fontSize: '13px' }}>
+                    ⏱️ {timeLeft}s
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -459,6 +494,9 @@ export default function App() {
                 );
               }
 
+              const voteEntries = Object.entries(roomState.votes || {});
+              const votersForThisSeat = voteEntries.filter(([voterId, targetSeat]) => parseInt(targetSeat) === seatNum).map(([voterId]) => roomState.players[voterId]?.name || 'Ai đó');
+
               return (
                 <div key={seatNum} className={cardClass} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
                   {occupant.statusEffect && (
@@ -520,17 +558,17 @@ export default function App() {
                   </div>
 
                   {isDay && occupant.isAlive && (
-                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-                      <span style={{ fontSize: '11px', color: '#facc15', marginBottom: '4px' }}>
-                        Phiếu: {Object.values(roomState.votes || {}).filter(s => s === seatNum).length}
-                      </span>
-                      {!isHost && (
-                        <button 
-                          onClick={() => socket.emit('cast_vote', { roomId, targetSeat: seatNum })}
-                          style={{ width: '100%', padding: '4px', background: '#475569', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', fontWeight: 'bold' }}
-                        >
-                          🗳️ Bầu chọn
-                        </button>
+                    <div style={{ marginTop: '8px', width: '100%', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button 
+                        onClick={() => socket.emit('vote_player', { roomId, targetSeat: seatNum })}
+                        style={{ width: '100%', padding: '4px', background: '#b45309', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        ⚖️ Treo Cổ Ghế Này
+                      </button>
+                      {votersForThisSeat.length > 0 && (
+                        <div style={{ fontSize: '10px', color: '#fde047', textAlign: 'center' }}>
+                          Bị vote: {votersForThisSeat.join(', ')} ({votersForThisSeat.length})
+                        </div>
                       )}
                     </div>
                   )}
