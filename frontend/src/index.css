@@ -2,10 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* === HIỆU ỨNG CHÉM ANIME (ANIME SLASH) === */
 @keyframes animeSlash {
   0% { transform: translate(-100%, 100%) rotate(-45deg); opacity: 0; width: 0%; }
   30% { opacity: 1; width: 150%; }
-  70% { opacity: 1; transform: translate(100%, -100%) rotate(-45deg); width: 150%; filter: drop-shadow(0 0 15px #ff3333); }
+  70% { opacity: 1; transform: translate(100%, -100%) rotate(-45deg); width: 150%; filter: drop-shadow(0 0 20px #ff3333); }
   100% { transform: translate(100%, -100%) rotate(-45deg); opacity: 0; width: 0%; }
 }
 
@@ -15,22 +16,23 @@
   left: -50%; 
   height: 8px;
   background: linear-gradient(90deg, transparent, #ffffff, #ff3333, transparent);
-  box-shadow: 0 0 20px #ff0000; 
+  box-shadow: 0 0 25px #ff0000; 
   z-index: 50; 
   pointer-events: none;
-  animation: animeSlash 0.8s ease-in-out forwards;
+  animation: animeSlash 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+/* === HIỆU ỨNG RUNG MÀN HÌNH (SCREEN SHAKE) === */
 @keyframes screenShake {
   0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-5px, 5px); }
-  40% { transform: translate(5px, -5px); }
-  60% { transform: translate(-5px, -5px); }
-  80% { transform: translate(5px, 5px); }
+  20% { transform: translate(-6px, 6px); }
+  40% { transform: translate(6px, -6px); }
+  60% { transform: translate(-4px, -4px); }
+  80% { transform: translate(4px, 4px); }
 }
 
 .card-shake { 
-  animation: screenShake 0.4s ease-in-out 0.2s; 
+  animation: screenShake 0.35s ease-in-out; 
 }
 
 /* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM (CƠ BẢN) === */
@@ -54,7 +56,7 @@
   pointer-events: none;
   animation: floatGhost 6s ease-in-out infinite;
   z-index: 5;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.6));
   will-change: transform, opacity;
 }
 
@@ -70,29 +72,30 @@
   position: absolute;
   pointer-events: none;
   animation: spookyDrift 5s ease-in-out infinite;
-  filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.9));
+  filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.9));
   z-index: 10;
+  will-change: transform, opacity;
 }
 
 @keyframes pulseOverlay {
   0% { opacity: 0.4; }
-  100% { opacity: 0.8; }
+  100% { opacity: 0.85; }
 }
 
 .night-blood-overlay {
   position: absolute;
   inset: 0;
-  box-shadow: inset 0 0 120px rgba(185, 28, 28, 0.5);
+  box-shadow: inset 0 0 150px rgba(185, 28, 28, 0.6);
   pointer-events: none;
   z-index: 8;
-  animation: pulseOverlay 3s infinite alternate;
+  animation: pulseOverlay 3s infinite alternate ease-in-out;
 }
 
 /* === HIỆU ỨNG SẤM SÉT CHỚP LÓE BAN ĐÊM === */
 @keyframes lightningFlash {
   0%, 90%, 95%, 100% { opacity: 0; background: transparent; }
-  92% { opacity: 0.85; background: rgba(255, 255, 255, 0.9); }
-  96% { opacity: 0.5; background: rgba(147, 197, 253, 0.6); }
+  92% { opacity: 0.9; background: rgba(255, 255, 255, 0.95); }
+  96% { opacity: 0.6; background: rgba(147, 197, 253, 0.7); }
 }
 
 .lightning-effect {
@@ -103,48 +106,74 @@
   animation: lightningFlash 7s infinite ease-in-out;
 }
 
-/* === HIỆU ỨNG KHIÊN BẢO VỆ (GUARD) === */
+/* === HIỆU ỨNG KHIÊN BẢO VỆ (GUARD SHIELD) === */
 @keyframes shieldPulse {
-  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); transform: scale(1); }
-  70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); transform: scale(1.02); }
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.8); transform: scale(1); }
+  70% { box-shadow: 0 0 0 18px rgba(59, 130, 246, 0); transform: scale(1.02); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); transform: scale(1); }
 }
 
 .guard-shield-active {
   border: 2px solid #3b82f6 !important;
   animation: shieldPulse 2s infinite ease-in-out;
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(59, 130, 246, 0.18) !important;
 }
 
 /* === HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION ANIMATION) === */
 @keyframes potionFlyAndSplash {
   0% { transform: translateY(40px) scale(0.3); opacity: 0; }
-  50% { transform: translateY(-10px) scale(1.2); opacity: 1; filter: drop-shadow(0 0 20px #a855f7); }
+  50% { transform: translateY(-10px) scale(1.25); opacity: 1; filter: drop-shadow(0 0 25px #a855f7); }
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 .witch-potion-effect {
-  animation: potionFlyAndSplash 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  animation: potionFlyAndSplash 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 /* === HIỆU ỨNG VÙNG CHỌN MỤC TIÊU KỲ BÍ (TARGET GLOW CHO SÓI/TIÊN TRI) === */
 @keyframes targetGlow {
-  0%, 100% { border-color: rgba(239, 68, 68, 0.6); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
-  50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 25px rgba(239, 68, 68, 0.8); }
+  0%, 100% { border-color: rgba(239, 68, 68, 0.6); box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); }
+  50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 30px rgba(239, 68, 68, 0.9); }
 }
 
 .target-selecting-glow {
-  animation: targetGlow 1.5s infinite ease-in-out;
+  animation: targetGlow 1.4s infinite ease-in-out;
 }
 
 /* === HIỆU ỨNG NHÂN VẬT NGƯỜI BỆNH / NHIỄM ĐỘC (INFECTED) === */
 @keyframes plaguePulse {
-  0%, 100% { border-color: rgba(34, 197, 94, 0.5); box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
-  50% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 22px rgba(34, 197, 94, 0.8); }
+  0%, 100% { border-color: rgba(34, 197, 94, 0.6); box-shadow: 0 0 12px rgba(34, 197, 94, 0.4); }
+  50% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 26px rgba(34, 197, 94, 0.85); }
 }
 
 .plague-infected-card {
   border: 2px dashed #22c55e !important;
   animation: plaguePulse 2s infinite ease-in-out;
-  background: rgba(34, 197, 94, 0.12) !important;
+  background: rgba(34, 197, 94, 0.15) !important;
+}
+
+/* === BỔ SUNG: HIỆU ỨNG CHIẾN THẮNG / KẾT THÚC GAME (WINNER GLOW & FIREWORKS VIBE) === */
+@keyframes winGlow {
+  0%, 100% { filter: drop-shadow(0 0 20px rgba(234, 179, 8, 0.6)); }
+  50% { filter: drop-shadow(0 0 40px rgba(234, 179, 8, 0.95)); }
+}
+
+.winner-banner-glow {
+  animation: winGlow 2s infinite ease-in-out;
+}
+
+/* Tùy chỉnh thanh cuộn đẹp mắt cho khung chat Sói / Hồn Ma */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
 }

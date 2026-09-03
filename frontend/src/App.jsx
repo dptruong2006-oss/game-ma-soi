@@ -64,7 +64,7 @@ export default function App() {
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
 
-  // Âm thanh hiệu ứng chuyển Đêm / Ngày (Tiếng cười ma quái & gió hú khi sang đêm)
+  // Âm thanh hiệu ứng chuyển Đêm / Ngày 
   const playSoundEffect = (phase) => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -101,7 +101,6 @@ export default function App() {
     socket.on('room_state_update', (state) => {
       if (state && state.phase && state.phase !== roomState.phase) {
         playSoundEffect(state.phase);
-        // Trigger hiệu ứng chém/rung khi chuyển sang ban đêm
         if (state.phase === 'NIGHT') {
           setIsSlashing(true);
           setIsShaking(true);
@@ -162,26 +161,37 @@ export default function App() {
     alert("Đã sao chép link mời phòng: " + roomId);
   };
 
-  // Đồng bộ trạng thái Bật/Tắt Mic & Cam theo phân quyền từ server (canSpeak, canCam)
+  // CHẶN HOÀN TOÀN MIC & CAM KHI SANG ĐÊM (Trừ Sói và Host)
   useEffect(() => {
     if (!myPlayerInfo) return;
-    
+
+    const allowedToSpeak = myPlayerInfo.canSpeak !== false;
+    const allowedToCam = myPlayerInfo.canCam !== false;
+
+    // Xử lý Audio (Mic)
     if (localTracks.audioTrack) {
-      const allowedToSpeak = myPlayerInfo.canSpeak !== false;
-      if (!allowedToSpeak && isMicOn) {
+      if (!allowedToSpeak) {
         localTracks.audioTrack.setEnabled(false);
         setIsMicOn(false);
+        agoraClient.unpublish([localTracks.audioTrack]).catch(() => {});
+      } else if (isMicOn) {
+        localTracks.audioTrack.setEnabled(true);
+        agoraClient.publish([localTracks.audioTrack]).catch(() => {});
       }
     }
 
+    // Xử lý Video (Cam)
     if (localTracks.videoTrack) {
-      const allowedToCam = myPlayerInfo.canCam !== false;
-      if (!allowedToCam && isVideoOn) {
+      if (!allowedToCam) {
         localTracks.videoTrack.setEnabled(false);
         setIsVideoOn(false);
+        agoraClient.unpublish([localTracks.videoTrack]).catch(() => {});
+      } else if (isVideoOn) {
+        localTracks.videoTrack.setEnabled(true);
+        agoraClient.publish([localTracks.videoTrack]).catch(() => {});
       }
     }
-  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam]);
+  }, [myPlayerInfo?.canSpeak, myPlayerInfo?.canCam, isNight]);
 
   useEffect(() => {
     if (!hasJoined) return;
@@ -279,7 +289,6 @@ export default function App() {
           <div className="night-blood-overlay" />
           <div className="lightning-effect" />
 
-          {/* Bầy hồn ma dày đặc rùng rợn */}
           <div className="creepy-ghost" style={{ top: '10%', left: '5%', animationDuration: '4.5s', animationDelay: '0s' }}>
             <div style={{ fontSize: '3.5rem' }}>👻</div>
           </div>
@@ -299,7 +308,7 @@ export default function App() {
             <div style={{ fontSize: '3.8rem' }}>💀</div>
           </div>
 
-          {/* Âm thanh tiếng cười ma quái & gió hú */}
+          {/* Âm thanh tiếng cười ma quái & gió hú (Chuyển Đêm) */}
           <audio 
             autoPlay 
             loop 
@@ -359,7 +368,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* Bảng điều khiển Quản Trò độc nhất (Bổ sung Người Bệnh) */}
+        {/* Bảng điều khiển Quản Trò độc nhất */}
         {isHost && (
           <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #d97706', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -522,37 +531,42 @@ export default function App() {
                   type="text" 
                   placeholder={isDead ? "Tám chuyện với các hồn ma khác..." : "Bàn kế hoạch với đồng bọn..."} 
                   value={isDead ? ghostInputMsg : wolfInputMsg} 
-                  onChange={e => isDead ? setGhostInputMsg(e.target.value) : setWolfInputMsg(e.target.value)} 
-                  onKeyDown={e => { 
+                  onChange={e => isDead ? setGhostInputMsg(e.target.value) : setWolfInputMsg(e.target.value)}
+                  onKeyDown={e => {
                     if (e.key === 'Enter') {
-                      if (isDead && ghostInputMsg.trim()) {
-                        socket.emit('send_ghost_chat', { roomId, message: ghostInputMsg.trim() });
+                      if (isDead) {
+                        if (!ghostInputMsg.trim()) return;
+                        socket.emit('send_ghost_message', { roomId, text: ghostInputMsg.trim() });
                         setGhostInputMsg('');
-                      } else if (!isDead && wolfInputMsg.trim()) {
-                        socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() });
+                      } else {
+                        if (!wolfInputMsg.trim()) return;
+                        socket.emit('send_wolf_message', { roomId, text: wolfInputMsg.trim() });
                         setWolfInputMsg('');
                       }
-                    } 
-                  }} 
-                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #3f3f46', background: '#09090b', color: '#fff', fontSize: '13px' }} 
-                />
-                <button 
-                  onClick={() => { 
-                    if (isDead && ghostInputMsg.trim()) {
-                      socket.emit('send_ghost_chat', { roomId, message: ghostInputMsg.trim() });
-                      setGhostInputMsg('');
-                    } else if (!isDead && wolfInputMsg.trim()) {
-                      socket.emit('send_wolf_chat', { roomId, message: wolfInputMsg.trim() });
-                      setWolfInputMsg('');
                     }
                   }}
-                  style={{ padding: '8px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                  style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #3f3f46', background: '#09090b', color: '#fff', fontSize: '12px' }}
+                />
+                <button 
+                  onClick={() => {
+                    if (isDead) {
+                      if (!ghostInputMsg.trim()) return;
+                      socket.emit('send_ghost_message', { roomId, text: ghostInputMsg.trim() });
+                      setGhostInputMsg('');
+                    } else {
+                      if (!wolfInputMsg.trim()) return;
+                      socket.emit('send_wolf_message', { roomId, text: wolfInputMsg.trim() });
+                      setWolfInputMsg('');
+                    }
+                  }} 
+                  style={{ padding: '8px 12px', background: isDead ? '#71717a' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   Gửi
                 </button>
               </div>
             </aside>
           )}
+
         </div>
       </div>
     </div>
