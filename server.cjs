@@ -39,7 +39,7 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
-// Hàm cập nhật quyền Mic (canSpeak) và Cam (canCam) theo chuẩn người chơi công bằng
+// Cập nhật quyền Mic (canSpeak) và Cam (canCam)
 function updateMediaPermissions(room) {
   const isNight = room.phase === 'NIGHT';
 
@@ -54,7 +54,7 @@ function updateMediaPermissions(room) {
   });
 }
 
-// Hàm kiểm tra điều kiện thắng thua của game
+// Kiểm tra điều kiện thắng thua
 function checkWinCondition(room) {
   const players = Object.values(room.players);
   const alivePlayers = players.filter(p => p.isAlive);
@@ -100,7 +100,6 @@ function startPhaseTimer(roomId, durationSeconds, nextPhaseCallback) {
   }, 1000);
 }
 
-// Hàm xử lý tự động khi hết giờ ban ngày (Chốt vote theo seat)
 function handleDayTimeout(roomId) {
   const room = rooms[roomId];
   if (!room || room.phase !== 'DAY') return;
@@ -156,7 +155,7 @@ function handleDayTimeout(roomId) {
 
   updateMediaPermissions(room);
   io.to(roomId).emit('room_state_update', room);
-  io.to(roomId).emit('media_permission_update', room.players); // Bổ sung bắn riêng để client đồng bộ cam/mic ngay lập tức
+  io.to(roomId).emit('media_permission_update', room.players);
 }
 
 function handleNightTimeout(roomId) {
@@ -211,7 +210,7 @@ function handleNightTimeout(roomId) {
 
   updateMediaPermissions(room);
   io.to(roomId).emit('room_state_update', room);
-  io.to(roomId).emit('media_permission_update', room.players); // Ép client mở lại mic/cam cho ngày mới
+  io.to(roomId).emit('media_permission_update', room.players);
 }
 
 io.on('connection', (socket) => {
@@ -465,7 +464,7 @@ io.on('connection', (socket) => {
 
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
-    if (!room) return;
+    if (!room || room.phase !== 'NIGHT') return;
 
     const player = room.players[socket.id];
     if (!player || !player.isAlive) return;

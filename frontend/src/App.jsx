@@ -144,7 +144,6 @@ export default function App() {
       }
     });
 
-    // Bổ sung lắng nghe sự kiện đồng bộ quyền phần cứng từ server
     socket.on('media_permission_update', (players) => {
       setRoomState(prev => ({ ...prev, players }));
     });
@@ -419,6 +418,7 @@ export default function App() {
                 <button onClick={() => socket.emit('change_phase', { roomId, phase: 'DAY' })} style={{ padding: '6px 12px', background: '#b45309', color: '#fef3c7', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>☀️ Đổi sang Ngày</button>
                 <button onClick={() => socket.emit('clear_votes', { roomId })} style={{ padding: '6px 12px', background: '#78716c', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🧹 Xóa Bảng Vote</button>
                 <button onClick={() => socket.emit('start_game', { roomId })} style={{ padding: '6px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🚀 Bắt Đầu Ván Đấu</button>
+                <button onClick={() => socket.emit('reset_game', { roomId })} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Làm Mới Ván Đấu</button>
               </div>
             </div>
           </div>
