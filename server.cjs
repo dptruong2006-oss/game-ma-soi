@@ -73,7 +73,7 @@ io.on('connection', (socket) => {
       seat,
       isHost: finalIsHost,
       role: null,
-      statusEffect: null,
+      statusEffect: null, // GUARDED, WOLF_TARGET, WITCH_SAVED, WITCH_POISONED
       isAlive: true
     };
 
@@ -130,10 +130,40 @@ io.on('connection', (socket) => {
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
     if (room && room.players[socket.id]?.isHost) {
+      // Nếu chuyển từ Đêm sang Ngày, tiến hành tính toán kết quả ban đêm
+      if (room.phase === 'NIGHT' && phase === 'DAY') {
+        Object.values(room.players).forEach(player => {
+          if (!player.isAlive) return;
+
+          let isGuarded = player.statusEffect === 'GUARDED';
+          let isWolfTarget = player.statusEffect === 'WOLF_TARGET';
+          let isWitchSaved = player.statusEffect === 'WITCH_SAVED';
+          let isWitchPoisoned = player.statusEffect === 'WITCH_POISONED';
+
+          if (isWitchPoisoned) {
+            player.isAlive = false;
+          } else if (isWolfTarget) {
+            // Nếu bị sói cắn mà không được bảo vệ và không được cứu -> chết
+            if (!isGuarded && !isWitchSaved) {
+              player.isAlive = false;
+            }
+          }
+        });
+      }
+
       room.phase = phase;
-      // Khi chuyển sang Đêm hoặc Ngày mới, có thể reset lại phiếu bầu cũ nếu cần
       if (phase === 'NIGHT') {
         room.votes = {};
+        Object.values(room.players).forEach(p => {
+          p.statusEffect = null;
+        });
+
+        // Khi sang đêm, gửi riêng thông tin ai bị sói cắn cho Phù thủy (nếu cần thiết cho client hiển thị)
+        const wolfTargetPlayer = Object.values(room.players).find(p => p.statusEffect === 'WOLF_TARGET');
+        const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
+        if (witchPlayer && wolfTargetPlayer) {
+          io.to(witchPlayer.id).emit('witch_target_info', { targetSeat: wolfTargetPlayer.seat });
+        }
       }
       io.to(roomId).emit('room_state_update', room);
     }
@@ -148,6 +178,7 @@ io.on('connection', (socket) => {
         text: message,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
+      if (room.wolfMessages.length > 50) room.wolfMessages.shift();
       io.to(roomId).emit('room_state_update', room);
     }
   });
@@ -198,7 +229,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý tác vụ ban đêm của Quản trò (Bảo vệ, Sói cắn, Tiên tri soi)
+  // Xử lý tác vụ ban đêm bảo mật (Bảo vệ, Sói cắn, Tiên tri soi, Phù thủy cứu/giết)
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -212,7 +243,12 @@ io.on('connection', (socket) => {
     } else if (actionType === 'WOLF') {
       Object.values(room.players).forEach(p => { if (p.statusEffect === 'WOLF_TARGET') p.statusEffect = null; });
       targetPlayer.statusEffect = 'WOLF_TARGET';
+    } else if (actionType === 'WITCH_SAVE') {
+      targetPlayer.statusEffect = 'WITCH_SAVED';
+    } else if (actionType === 'WITCH_POISON') {
+      targetPlayer.statusEffect = 'WITCH_POISONED';
     } else if (actionType === 'SEER_CHECK') {
+      // Chỉ gửi kết quả về riêng cho Tiên tri thực hiện thao tác
       socket.emit('seer_result', {
         seat: targetSeat,
         name: targetPlayer.name,
@@ -220,7 +256,17 @@ io.on('connection', (socket) => {
       });
     }
 
-    io.to(roomId).emit('room_state_update', room);
+    // Gửi thông báo riêng hoặc cập nhật ngầm cho Quản trò biết hành động đã được thực hiện (nếu cần theo dõi)
+    const hostPlayer = Object.values(room.players).find(p => p.isHost);
+    if (hostPlayer) {
+      io.to(hostPlayer.id).emit('host_action_notification', {
+        actionType,
+        targetSeat
+      });
+    }
+
+    // Không broadcast trạng thái statusEffect chi tiết ra phòng chung để bảo mật tuyệt đối vai trò
+    // Chỉ cập nhật trạng thái chung cơ bản nếu cần
   });
 
   socket.on('disconnect', () => {

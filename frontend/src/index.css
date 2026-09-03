@@ -26,7 +26,7 @@
 
 .card-shake { animation: screenShake 0.4s ease-in-out 0.2s; }
 
-/* === THÊM HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM VÀO ĐÂY === */
+/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM === */
 @keyframes floatGhost {
   0% {
     transform: translateY(0px) translateX(0px) rotate(0deg) scale(0.8);
@@ -48,4 +48,38 @@
   animation: floatGhost 6s ease-in-out infinite;
   z-index: 5;
   filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+}
+
+/* === BỔ SUNG: HIỆU ỨNG KHIÊN BẢO VỆ (GUARD) === */
+@keyframes shieldPulse {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); transform: scale(1); }
+  70% { box-shadow: 0 0 0 15px rgba(59, 130, 246, 0); transform: scale(1.02); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); transform: scale(1); }
+}
+
+.guard-shield-active {
+  border: 2px solid #3b82f6 !important;
+  animation: shieldPulse 2s infinite ease-in-out;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+/* === BỔ SUNG: HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION ANIMATION) === */
+@keyframes potionFlyAndSplash {
+  0% { transform: translateY(40px) scale(0.3); opacity: 0; }
+  50% { transform: translateY(-10px) scale(1.2); opacity: 1; filter: drop-shadow(0 0 20px #a855f7); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.witch-potion-effect {
+  animation: potionFlyAndSplash 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* === BỔ SUNG: HIỆU ỨNG VÙNG CHỌN MỤC TIÊU KỲ BÍ (TARGET GLOW CHO SÓI/TIÊN TRI) === */
+@keyframes targetGlow {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.6); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+  50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 25px rgba(239, 68, 68, 0.8); }
+}
+
+.target-selecting-glow {
+  animation: targetGlow 1.5s infinite ease-in-out;
 }

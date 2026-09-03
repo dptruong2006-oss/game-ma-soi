@@ -40,6 +40,10 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   const [wolfInputMsg, setWolfInputMsg] = useState('');
   const [ghostInputMsg, setGhostInputMsg] = useState('');
+  
+  // State hiệu ứng chém anime & rung màn hình
+  const [isSlashing, setIsSlashing] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
 
   const [roomId, setRoomId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -97,6 +101,13 @@ export default function App() {
     socket.on('room_state_update', (state) => {
       if (state && state.phase && state.phase !== roomState.phase) {
         playSoundEffect(state.phase);
+        // Trigger hiệu ứng chém/rung khi chuyển sang ban đêm
+        if (state.phase === 'NIGHT') {
+          setIsSlashing(true);
+          setIsShaking(true);
+          setTimeout(() => setIsSlashing(false), 900);
+          setTimeout(() => setIsShaking(false), 600);
+        }
       }
       if (state && state.players) {
         setRoomState(state);
@@ -231,8 +242,11 @@ export default function App() {
   const settings = roomState.settings || {};
 
   return (
-    <div style={{ backgroundColor: isNight ? '#090d16' : '#0f172a', color: '#fff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', transition: 'background-color 0.8s ease', position: 'relative', overflow: 'hidden' }}>
+    <div className={isShaking ? 'card-shake' : ''} style={{ backgroundColor: isNight ? '#090d16' : '#0f172a', color: '#fff', minHeight: '100vh', padding: '24px', fontFamily: 'sans-serif', transition: 'background-color 0.8s ease', position: 'relative', overflow: 'hidden' }}>
       
+      {/* Hiệu ứng đường chém anime khi chuyển đêm */}
+      {isSlashing && <div className="slash-effect" />}
+
       {/* Hiệu ứng Hồn Ma Anime trắng bay lượn & Nhạc nền kinh dị dài hơi khi sang Ban Đêm */}
       {isNight && (
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
@@ -325,6 +339,10 @@ export default function App() {
               const isMe = occupant && occupant.id === socket.id;
               const remoteUser = occupant ? remoteUsers.find(u => u.uid === occupant.id) : null;
 
+              // Kiểm tra xem ghế có đang được bảo vệ bởi khiên hoặc chọn mục tiêu không
+              const isShielded = occupant?.statusEffect === 'GUARD';
+              const cardClass = isShielded ? 'guard-shield-active' : (isNight ? 'target-selecting-glow' : '');
+
               if (!occupant) {
                 return (
                   <div key={seatNum} style={{ borderRadius: '14px', border: '1px dashed #334155', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '160px', opacity: 0.3 }}>
@@ -334,9 +352,9 @@ export default function App() {
               }
 
               return (
-                <div key={seatNum} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
+                <div key={seatNum} className={cardClass} style={{ position: 'relative', borderRadius: '14px', background: '#0f172a', border: isMe ? '2px solid #a855f7' : '1px solid #334155', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', opacity: occupant.isAlive === false ? 0.5 : 1 }}>
                   {occupant.statusEffect && isHost && (
-                    <div style={{ position: 'absolute', top: '6px', right: '6px', background: '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
+                    <div className={occupant.statusEffect === 'WITCH_POTION' ? 'witch-potion-effect' : ''} style={{ position: 'absolute', top: '6px', right: '6px', background: occupant.statusEffect === 'WITCH_POTION' ? '#a855f7' : '#dc2626', color: '#fff', fontSize: '9px', padding: '2px 5px', borderRadius: '9999px', fontWeight: 'bold', zIndex: 5 }}>
                       {occupant.statusEffect}
                     </div>
                   )}
