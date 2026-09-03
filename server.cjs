@@ -39,16 +39,13 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
-// Hàm cập nhật quyền Mic (canSpeak) và Cam (canCam) cho người chơi
+// Hàm cập nhật quyền Mic (canSpeak) và Cam (canCam) theo chuẩn người chơi công bằng
 function updateMediaPermissions(room) {
   const isNight = room.phase === 'NIGHT';
 
   Object.values(room.players).forEach(player => {
-    if (player.isHost) {
-      player.canSpeak = true;
-      player.canCam = true;
-    } else if (isNight) {
-      // Ban đêm: Chỉ Sói mới được mở mic. Cam tất cả tắt trừ Quản trò.
+    if (isNight) {
+      // Ban đêm: Chỉ Sói còn sống mới được mở mic. Tất cả tắt cam.
       player.canSpeak = (player.role === 'WOLF' && player.isAlive);
       player.canCam = false;
     } else {
@@ -103,10 +100,21 @@ io.on('connection', (socket) => {
     }
 
     const room = rooms[roomId];
+
+    // Xử lý chống trùng ghế hoặc F5 nhận diện lại ghế cũ
+    const existingPlayerAtSeat = Object.values(room.players).find(p => p.seat === seat);
+    if (existingPlayerAtSeat && existingPlayerAtSeat.id !== socket.id) {
+      delete room.players[existingPlayerAtSeat.id];
+    }
+
     const existingHost = Object.values(room.players).find(p => p.isHost);
     let finalIsHost = !!isHost;
-    if (finalIsHost && existingHost && existingHost.id !== socket.id) {
-      finalIsHost = false; 
+    if (!existingHost && Object.keys(room.players).length === 0) {
+      finalIsHost = true;
+    } else if (existingHost && existingHost.seat === seat) {
+      finalIsHost = true;
+    } else {
+      finalIsHost = false;
     }
 
     room.players[socket.id] = {
@@ -114,11 +122,11 @@ io.on('connection', (socket) => {
       name,
       seat,
       isHost: finalIsHost,
-      role: null,
-      statusEffect: null, 
-      isAlive: true,
-      hasUsedHeal: false,   
-      hasUsedPoison: false,
+      role: existingPlayerAtSeat ? existingPlayerAtSeat.role : null,
+      statusEffect: existingPlayerAtSeat ? existingPlayerAtSeat.statusEffect : null, 
+      isAlive: existingPlayerAtSeat ? existingPlayerAtSeat.isAlive : true,
+      hasUsedHeal: existingPlayerAtSeat ? existingPlayerAtSeat.hasUsedHeal : false,   
+      hasUsedPoison: existingPlayerAtSeat ? existingPlayerAtSeat.hasUsedPoison : false,
       canSpeak: true,
       canCam: true
     };
@@ -219,6 +227,13 @@ io.on('connection', (socket) => {
           }
         });
 
+        // Gửi thông báo kết quả đêm qua
+        if (deadSeatsThisNight.length === 0) {
+          io.to(roomId).emit('notification', { message: '🌙 Đêm qua là một đêm an toàn, không có ai thiệt mạng!' });
+        } else {
+          io.to(roomId).emit('notification', { message: `☠️ Các ghế thiệt mạng trong đêm: ${deadSeatsThisNight.join(', ')}` });
+        }
+
         const winner = checkWinCondition(room);
         if (winner) {
           room.phase = 'END';
@@ -246,14 +261,40 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý treo cổ ban ngày
-  socket.on('execute_vote_result', ({ roomId, targetSeat }) => {
+  // Xử lý tổng hợp kết quả vote treo cổ ban ngày
+  socket.on('execute_vote_result', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
 
-    const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
-    if (targetPlayer) {
-      targetPlayer.isAlive = false;
+    const votes = room.votes || {};
+    const voteCounts = {};
+
+    Object.values(votes).forEach(targetSeat => {
+      voteCounts[targetSeat] = (voteCounts[targetSeat] || 0) + 1;
+    });
+
+    let maxVotes = 0;
+    let targetSeatToExecute = null;
+    let isTie = false;
+
+    for (const [seat, count] of Object.entries(voteCounts)) {
+      if (count > maxVotes) {
+        maxVotes = count;
+        targetSeatToExecute = parseInt(seat);
+        isTie = false;
+      } else if (count === maxVotes) {
+        isTie = true;
+      }
+    }
+
+    if (targetSeatToExecute !== null && !isTie && maxVotes > 0) {
+      const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeatToExecute);
+      if (targetPlayer) {
+        targetPlayer.isAlive = false;
+        io.to(roomId).emit('notification', { message: `⚖️ Làng đã quyết định treo cổ ghế #${targetSeatToExecute} (${targetPlayer.name})!` });
+      }
+    } else {
+      io.to(roomId).emit('notification', { message: '⚖️ Không có ai bị treo cổ trong ngày hôm nay (Phiếu bầu trống hoặc hòa).' });
     }
 
     const winner = checkWinCondition(room);
@@ -274,7 +315,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // Chat riêng của Sói ban đêm
+  // Chat riêng của Sói ban đêm (Chỉ Sói sống mới được chat)
   socket.on('send_wolf_message', ({ roomId, text }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -282,12 +323,9 @@ io.on('connection', (socket) => {
     const senderPlayer = room.players[socket.id];
     if (!senderPlayer) return;
 
-    const isWolf = senderPlayer.role === 'WOLF';
-    const isHost = senderPlayer.isHost;
-
-    if (isWolf || isHost) {
+    if (senderPlayer.role === 'WOLF' && senderPlayer.isAlive) {
       room.wolfMessages.push({
-        sender: `${senderPlayer.name}${isHost ? ' (Quản Trò)' : ' (Sói)'}`,
+        sender: `${senderPlayer.name} (Sói)`,
         text: text,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
@@ -352,16 +390,16 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     const player = room.players[socket.id];
-    if (!player || (!player.isAlive && !player.isHost)) return;
+    if (!player || !player.isAlive) return;
 
     const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
     if (!targetPlayer) return;
 
-    if (actionType === 'GUARD' && (player.role === 'GUARD' || player.isHost)) {
+    if (actionType === 'GUARD' && player.role === 'GUARD') {
       room.guardTarget = targetSeat;
       targetPlayer.statusEffect = 'GUARDED';
     } 
-    else if (actionType === 'WOLF' && (player.role === 'WOLF' || player.isHost)) {
+    else if (actionType === 'WOLF' && player.role === 'WOLF') {
       room.wolfTarget = targetSeat;
       targetPlayer.statusEffect = 'WOLF_TARGET';
       room.wolfMessages.push({
@@ -375,23 +413,23 @@ io.on('connection', (socket) => {
         io.to(witchPlayer.id).emit('witch_target_info', { targetSeat: targetSeat });
       }
     } 
-    else if (actionType === 'WITCH_SAVE' && (player.role === 'WITCH' || player.isHost)) {
-      if (player.hasUsedHeal && !player.isHost) {
+    else if (actionType === 'WITCH_SAVE' && player.role === 'WITCH') {
+      if (player.hasUsedHeal) {
         return socket.emit('notification', { message: 'Bạn đã dùng Bình Cứu ở các lượt trước rồi!' });
       }
       player.hasUsedHeal = true;
       room.witchHealTarget = targetSeat;
       targetPlayer.statusEffect = 'WITCH_SAVED';
     } 
-    else if (actionType === 'WITCH_POISON' && (player.role === 'WITCH' || player.isHost)) {
-      if (player.hasUsedPoison && !player.isHost) {
+    else if (actionType === 'WITCH_POISON' && player.role === 'WITCH') {
+      if (player.hasUsedPoison) {
         return socket.emit('notification', { message: 'Bạn đã dùng Bình Độc ở các lượt trước rồi!' });
       }
       player.hasUsedPoison = true;
       room.witchPoisonTarget = targetSeat;
       targetPlayer.statusEffect = 'WITCH_POISONED';
     } 
-    else if (actionType === 'SEER_CHECK' && (player.role === 'SEER' || player.isHost)) {
+    else if (actionType === 'SEER_CHECK' && player.role === 'SEER') {
       socket.emit('seer_result', {
         seat: targetSeat,
         name: targetPlayer.name,
