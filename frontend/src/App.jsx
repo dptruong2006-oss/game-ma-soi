@@ -36,29 +36,37 @@ const GlobalStyles = () => (
   `}</style>
 );
 
-// Component phát Video/Audio Agora
+// Component phát Video/Audio Agora (Đã sửa lỗi Render DOM)
 const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
   const containerRef = useRef(null);
 
   useEffect(() => {
-    if (!containerRef.current || !videoTrack) return;
+    const el = containerRef.current;
+    if (!el || !videoTrack) return;
+
     try {
-      videoTrack.play(containerRef.current);
+      videoTrack.play(el);
     } catch (e) {
       console.error("Lỗi phát video:", e);
     }
 
     return () => {
       try {
-        if (videoTrack && videoTrack.isPlaying) videoTrack.stop();
-      } catch (e) {}
+        if (videoTrack && videoTrack.isPlaying) {
+          videoTrack.stop();
+        }
+      } catch (e) {
+        console.error("Lỗi dọn dẹp video track:", e);
+      }
     };
   }, [videoTrack]);
 
   useEffect(() => {
     if (!isLocal && audioTrack) {
       try {
-        audioTrack.play();
+        if (!audioTrack.isPlaying) {
+          audioTrack.play();
+        }
       } catch (e) {
         console.error("Lỗi phát audio:", e);
       }
@@ -261,7 +269,7 @@ export default function App() {
   const isNight = roomState.phase === 'NIGHT';
   const isDay = roomState.phase === 'DAY';
 
-  // Socket Event Handler Stable Setup
+  // Socket Event Handler
   useEffect(() => {
     const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
@@ -335,7 +343,7 @@ export default function App() {
     }
   }, [isNight]);
 
-  // Bật/tắt Micro và Camera trực tiếp
+  // Bật/tắt Micro và Camera
   useEffect(() => {
     if (localTracks.audioTrack) {
       const canSpeak = myPlayerInfo?.canSpeak !== false;
@@ -350,9 +358,9 @@ export default function App() {
     }
   }, [myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
-  // Khởi tạo Agora RTC (Đã sửa lỗi UID)
+  // Khởi tạo Agora RTC (Cải tiến xử lý chống sập luồng camera)
   useEffect(() => {
-    if (!hasJoined) return;
+    if (!hasJoined || !socket.id) return;
     let isMounted = true;
     let createdAudioTrack = null;
     let createdVideoTrack = null;
@@ -363,7 +371,6 @@ export default function App() {
           await agoraClient.subscribe(user, mediaType);
           if (isMounted) {
             setRemoteUsers(prev => {
-              // Ép kiểu String để so sánh chính xác UID với socket.id
               const exists = prev.find(u => String(u.uid) === String(user.uid));
               return exists ? prev.map(u => String(u.uid) === String(user.uid) ? user : u) : [...prev, user];
             });
@@ -376,20 +383,36 @@ export default function App() {
           }
         });
 
-        // Truyền socket.id sang API backend để cấp Token khớp chính xác UID
+        // Lấy Token từ Server Node.js
         const res = await fetch(`${SOCKET_SERVER_URL}/api/agora-token?channelName=${roomId}&uid=${socket.id}`);
         const data = await res.json();
+        
         await agoraClient.join(AGORA_APP_ID, roomId, data.token || null, socket.id);
 
-        try { createdAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(); } catch (e) { setIsMicOn(false); }
-        try { createdVideoTrack = await AgoraRTC.createCameraVideoTrack(); } catch (e) { setIsVideoOn(false); }
+        // Tạo riêng biệt Mic và Cam để tránh crash chéo
+        try { 
+          createdAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(); 
+        } catch (e) { 
+          console.warn("Không thể mở Microphone:", e);
+          setIsMicOn(false); 
+        }
+
+        try { 
+          createdVideoTrack = await AgoraRTC.createCameraVideoTrack(); 
+        } catch (e) { 
+          console.warn("Không thể mở Camera:", e);
+          setIsVideoOn(false); 
+        }
 
         if (isMounted) {
           setLocalTracks({ audioTrack: createdAudioTrack, videoTrack: createdVideoTrack });
-          const tracks = [];
-          if (createdAudioTrack) tracks.push(createdAudioTrack);
-          if (createdVideoTrack) tracks.push(createdVideoTrack);
-          if (tracks.length > 0) await agoraClient.publish(tracks);
+          const tracksToPublish = [];
+          if (createdAudioTrack) tracksToPublish.push(createdAudioTrack);
+          if (createdVideoTrack) tracksToPublish.push(createdVideoTrack);
+          
+          if (tracksToPublish.length > 0) {
+            await agoraClient.publish(tracksToPublish);
+          }
         } else {
           createdAudioTrack?.close();
           createdVideoTrack?.close();
@@ -641,7 +664,6 @@ export default function App() {
             const occupant = playerList.find(p => parseInt(p.seat) === seatNum);
             const isMe = occupant && occupant.id === socket.id;
             
-            // Ép kiểu String khi so sánh UID giữa occupant.id và u.uid của Agora
             const remoteUser = occupant ? remoteUsers.find(u => String(u.uid) === String(occupant.id)) : null;
 
             return (
@@ -777,7 +799,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: '8px',
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center'
   },
   hostBtn: {
@@ -837,7 +859,7 @@ const styles = {
   },
   header: {
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center',
     marginBottom: '20px',
     padding: '16px',
@@ -902,7 +924,7 @@ const styles = {
     borderRadius: '10px',
     marginBottom: '16px',
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center'
   },
   seatsGrid: {
@@ -917,7 +939,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    justify: 'center',
     minHeight: '160px',
     opacity: 0.3
   },
@@ -952,7 +974,7 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
+    justify: 'center',
     position: 'relative'
   },
   deadOverlay: {
@@ -968,51 +990,51 @@ const styles = {
     justifyContent: 'center'
   },
   actionVoteBtn: {
-    fontSize: '9px',
-    padding: '2px 6px',
-    background: '#eab308',
-    color: '#000',
+    padding: '4px 8px',
+    background: '#0284c7',
+    color: '#fff',
     border: 'none',
-    borderRadius: '3px',
+    borderRadius: '4px',
+    fontSize: '11px',
     fontWeight: 'bold',
     cursor: 'pointer'
   },
   actionIconBtn: {
-    fontSize: '9px',
-    padding: '2px 4px',
+    padding: '4px 6px',
     background: '#2563eb',
     color: '#fff',
     border: 'none',
-    borderRadius: '3px',
+    borderRadius: '4px',
+    fontSize: '11px',
     cursor: 'pointer'
   },
   roleActionBtn: {
-    fontSize: '9px',
-    padding: '2px 6px',
+    padding: '4px 8px',
     background: '#2563eb',
     color: '#fff',
     border: 'none',
-    borderRadius: '3px',
+    borderRadius: '4px',
+    fontSize: '11px',
     fontWeight: 'bold',
     cursor: 'pointer'
   },
   logContainer: {
     marginTop: '20px',
-    background: '#020617',
+    background: '#0f172a',
     padding: '12px',
-    borderRadius: '10px',
-    border: '1px solid #1e293b'
+    borderRadius: '8px',
+    border: '1px solid #334155'
   },
   logBox: {
     maxHeight: '100px',
     overflowY: 'auto'
   },
   chatBoxContainer: {
-    marginTop: '16px',
-    background: '#450a0a',
+    marginTop: '20px',
+    background: '#1e1b4b',
     padding: '12px',
-    borderRadius: '10px',
-    border: '1px solid #991b1b'
+    borderRadius: '8px',
+    border: '1px solid #4338ca'
   },
   chatMessagesArea: {
     maxHeight: '120px',
@@ -1024,7 +1046,7 @@ const styles = {
     background: '#dc2626',
     color: '#fff',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '8px',
     fontWeight: 'bold',
     cursor: 'pointer'
   }

@@ -25,7 +25,7 @@ process.on('unhandledRejection', (reason) => console.error('[UNHANDLED REJECTION
 const APP_ID = process.env.AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475";
 const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
 
-// API Cấp Token Agora (Đã sửa hàm tương thích với phiên bản agora-access-token)
+// API Cấp Token Agora (Đã sửa: Ép dùng String Account cho Socket.id)
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
   const rawUid = req.query.uid;
@@ -33,27 +33,27 @@ app.get('/api/agora-token', (req, res) => {
   if (!channelName) return res.status(400).json({ error: 'channelName is required' });
 
   const role = RtcRole.PUBLISHER;
-  const expirationTimeInSeconds = 3600;
+  const expirationTimeInSeconds = 3600 * 24; // 24 giờ
   const currentTimestamp = Math.floor(Date.now() / 1000);
   const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
   try {
     let token;
     
-    // Nếu client gửi uid dạng số hợp lệ
-    if (rawUid !== undefined && rawUid !== null && !isNaN(Number(rawUid))) {
-      const uid = Number(rawUid);
-      token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
-      return res.json({ token, uid });
-    } 
-    
-    // Nếu client gửi uid dạng chuỗi (String Account, ví dụ: socket.id)
+    // Nếu truyền UID dạng String (socket.id)
     if (rawUid && typeof rawUid === 'string') {
       token = RtcTokenBuilder.buildTokenWithAccount(APP_ID, APP_CERTIFICATE, channelName, rawUid, role, privilegeExpiredTs);
       return res.json({ token, uid: rawUid });
     }
 
-    // Mặc định nếu không truyền uid
+    // Nếu truyền UID dạng số
+    if (rawUid !== undefined && rawUid !== null && !isNaN(Number(rawUid))) {
+      const uid = Number(rawUid);
+      token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
+      return res.json({ token, uid });
+    } 
+
+    // Mặc định nếu không có UID
     token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, 0, role, privilegeExpiredTs);
     return res.json({ token, uid: 0 });
 
@@ -65,7 +65,7 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
-// Hàm làm sạch dữ liệu phòng gửi về Client (Tránh lỗi Socket Serialization & giấu Role)
+// Hàm làm sạch dữ liệu phòng gửi về Client
 function sanitizeRoomForPlayer(room, recipientUserId) {
   const cleanPlayers = {};
   const recipientPlayer = room.players[recipientUserId];
@@ -82,7 +82,6 @@ function sanitizeRoomForPlayer(room, recipientUserId) {
     };
   });
 
-  // Tạo bản sao room loại bỏ thuộc tính Timer
   const { phaseTimer, disconnectTimeouts, ...cleanRoom } = room;
   cleanRoom.players = cleanPlayers;
 
@@ -99,8 +98,9 @@ function broadcastRoomState(roomId) {
 
   socketsInRoom.forEach(socketId => {
     const clientSocket = io.sockets.sockets.get(socketId);
-    if (clientSocket && clientSocket.userId) {
-      const sanitizedData = sanitizeRoomForPlayer(room, clientSocket.userId);
+    if (clientSocket) {
+      const targetUserId = clientSocket.userId || clientSocket.id;
+      const sanitizedData = sanitizeRoomForPlayer(room, targetUserId);
       clientSocket.emit('room_state_update', sanitizedData);
     }
   });
@@ -290,7 +290,6 @@ function handleNightTimeout(roomId) {
 }
 
 io.on('connection', (socket) => {
-  // Anti-spam middleware
   socket.use(([event, ...args], next) => {
     const now = Date.now();
     if (!socket.lastActionTime) socket.lastActionTime = {};
@@ -371,28 +370,30 @@ io.on('connection', (socket) => {
 
   // 2. Reconnect khôi phục trạng thái
   socket.on('reconnect_player', ({ roomId, userId }) => {
+    const targetUserId = userId || socket.id;
     const room = rooms[roomId];
-    if (room && room.players[userId]) {
+    if (room && room.players[targetUserId]) {
       socket.join(roomId);
       socket.roomId = roomId;
-      socket.userId = userId;
+      socket.userId = targetUserId;
 
-      room.players[userId].id = socket.id;
-      room.players[userId].isDisconnected = false;
+      room.players[targetUserId].id = socket.id;
+      room.players[targetUserId].isDisconnected = false;
 
-      if (room.disconnectTimeouts && room.disconnectTimeouts[userId]) {
-        clearTimeout(room.disconnectTimeouts[userId]);
-        delete room.disconnectTimeouts[userId];
+      if (room.disconnectTimeouts && room.disconnectTimeouts[targetUserId]) {
+        clearTimeout(room.disconnectTimeouts[targetUserId]);
+        delete room.disconnectTimeouts[targetUserId];
       }
 
-      socket.emit('sync_game_state', sanitizeRoomForPlayer(room, userId));
+      socket.emit('sync_game_state', sanitizeRoomForPlayer(room, targetUserId));
       broadcastRoomState(roomId);
     }
   });
 
   socket.on('update_settings', ({ roomId, settings }) => {
     const room = rooms[roomId];
-    if (room && room.players[socket.userId]?.isHost) {
+    const uId = socket.userId || socket.id;
+    if (room && room.players[uId]?.isHost) {
       room.settings = { ...room.settings, ...settings };
       broadcastRoomState(roomId);
     }
@@ -401,7 +402,8 @@ io.on('connection', (socket) => {
   // 3. Bắt đầu Game
   socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
-    if (!room || !room.players[socket.userId]?.isHost) return;
+    const uId = socket.userId || socket.id;
+    if (!room || !room.players[uId]?.isHost) return;
 
     const playerKeys = Object.keys(room.players);
     const totalPlayers = playerKeys.length;
@@ -457,7 +459,8 @@ io.on('connection', (socket) => {
 
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
-    if (room && room.players[socket.userId]?.isHost) {
+    const uId = socket.userId || socket.id;
+    if (room && room.players[uId]?.isHost) {
       clearRoomTimer(room);
 
       if (room.phase === 'NIGHT' && phase === 'DAY') {
@@ -488,7 +491,8 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (!room || room.phase !== 'DAY') return;
 
-    const voter = room.players[socket.userId];
+    const uId = socket.userId || socket.id;
+    const voter = room.players[uId];
     if (!voter || !voter.isAlive) return;
 
     if (!room.votes) room.votes = {};
@@ -502,18 +506,20 @@ io.on('connection', (socket) => {
 
   socket.on('clear_votes', ({ roomId }) => {
     const room = rooms[roomId];
-    if (room && room.players[socket.userId]?.isHost) {
+    const uId = socket.userId || socket.id;
+    if (room && room.players[uId]?.isHost) {
       room.votes = {};
       broadcastRoomState(roomId);
     }
   });
 
-  // 4. Kỹ năng ban đêm & Bảo mật gửi tin nhắn Sói
+  // 4. Kỹ năng ban đêm & Gửi tin nhắn Sói
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room || room.phase !== 'NIGHT') return;
 
-    const player = room.players[socket.userId];
+    const uId = socket.userId || socket.id;
+    const player = room.players[uId];
     if (!player || !player.isAlive) return;
 
     const targetPlayer = Object.values(room.players).find(p => p.seat === parseInt(targetSeat));
@@ -529,16 +535,12 @@ io.on('connection', (socket) => {
     else if (actionType === 'WOLF' && player.role === 'WOLF') {
       room.wolfTarget = targetSeat;
       
-      const wolfMsg = {
-        sender: 'Hệ thống',
-        text: `🐺 Sói ${player.name} chọn cắn ghế #${targetSeat}`,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      room.wolfMessages.push(wolfMsg);
+      const msgObj = { sender: 'Hệ thống', message: `🐺 Sói ${player.name} chọn cắn ghế #${targetSeat}` };
+      room.wolfMessages.push(msgObj);
 
       Object.values(room.players).forEach(p => {
         if (p.role === 'WOLF' && p.isAlive) {
-          io.to(p.id).emit('wolf_chat_update', room.wolfMessages);
+          io.to(p.id).emit('wolf_message_receive', msgObj);
         }
       });
 
@@ -574,22 +576,22 @@ io.on('connection', (socket) => {
   });
 
   // 5. Chat riêng Sói & Chat Hồn Ma
-  socket.on('send_wolf_chat', ({ roomId, message }) => {
+  socket.on('send_wolf_chat', ({ roomId, message, sender }) => {
     const room = rooms[roomId];
     if (!room) return;
-    const player = room.players[socket.userId];
+    const uId = socket.userId || socket.id;
+    const player = room.players[uId];
 
     if (player && player.role === 'WOLF' && player.isAlive) {
       const msgObj = {
-        sender: player.name,
-        text: message,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        sender: sender || player.name,
+        message: message
       };
       room.wolfMessages.push(msgObj);
 
       Object.values(room.players).forEach(p => {
         if (p.role === 'WOLF' && p.isAlive) {
-          io.to(p.id).emit('wolf_chat_update', room.wolfMessages);
+          io.to(p.id).emit('wolf_message_receive', msgObj);
         }
       });
     }
@@ -598,28 +600,28 @@ io.on('connection', (socket) => {
   socket.on('send_ghost_chat', ({ roomId, message }) => {
     const room = rooms[roomId];
     if (!room) return;
-    const player = room.players[socket.userId];
+    const uId = socket.userId || socket.id;
+    const player = room.players[uId];
 
     if (player && !player.isAlive) {
       const msgObj = {
         sender: player.name,
-        text: message,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        message: message
       };
       room.ghostMessages.push(msgObj);
 
       Object.values(room.players).forEach(p => {
         if (!p.isAlive) {
-          io.to(p.id).emit('ghost_chat_update', room.ghostMessages);
+          io.to(p.id).emit('ghost_message_receive', msgObj);
         }
       });
     }
   });
 
-  // 6. Xử lý ngắt kết nối & Chuyển quyền Host
+  // 6. Xử lý ngắt kết nối
   socket.on('disconnect', () => {
     const roomId = socket.roomId;
-    const userId = socket.userId;
+    const userId = socket.userId || socket.id;
 
     if (roomId && rooms[roomId] && userId && rooms[roomId].players[userId]) {
       const room = rooms[roomId];
