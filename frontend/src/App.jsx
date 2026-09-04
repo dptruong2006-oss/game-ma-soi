@@ -350,7 +350,7 @@ export default function App() {
     }
   }, [myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
-  // Khởi tạo Agora RTC
+  // Khởi tạo Agora RTC (Đã sửa lỗi UID)
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
@@ -363,19 +363,23 @@ export default function App() {
           await agoraClient.subscribe(user, mediaType);
           if (isMounted) {
             setRemoteUsers(prev => {
-              const exists = prev.find(u => u.uid === user.uid);
-              return exists ? prev.map(u => u.uid === user.uid ? user : u) : [...prev, user];
+              // Ép kiểu String để so sánh chính xác UID với socket.id
+              const exists = prev.find(u => String(u.uid) === String(user.uid));
+              return exists ? prev.map(u => String(u.uid) === String(user.uid) ? user : u) : [...prev, user];
             });
           }
         });
 
         agoraClient.on('user-left', (user) => {
-          if (isMounted) setRemoteUsers(prev => prev.filter(u => u.uid !== user.uid));
+          if (isMounted) {
+            setRemoteUsers(prev => prev.filter(u => String(u.uid) !== String(user.uid)));
+          }
         });
 
-        const res = await fetch(`${SOCKET_SERVER_URL}/api/agora-token?channelName=${roomId}`);
+        // Truyền socket.id sang API backend để cấp Token khớp chính xác UID
+        const res = await fetch(`${SOCKET_SERVER_URL}/api/agora-token?channelName=${roomId}&uid=${socket.id}`);
         const data = await res.json();
-        await agoraClient.join(AGORA_APP_ID, roomId, data.token, socket.id);
+        await agoraClient.join(AGORA_APP_ID, roomId, data.token || null, socket.id);
 
         try { createdAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(); } catch (e) { setIsMicOn(false); }
         try { createdVideoTrack = await AgoraRTC.createCameraVideoTrack(); } catch (e) { setIsVideoOn(false); }
@@ -636,7 +640,9 @@ export default function App() {
             const seatNum = index + 1;
             const occupant = playerList.find(p => parseInt(p.seat) === seatNum);
             const isMe = occupant && occupant.id === socket.id;
-            const remoteUser = occupant ? remoteUsers.find(u => u.uid === occupant.id) : null;
+            
+            // Ép kiểu String khi so sánh UID giữa occupant.id và u.uid của Agora
+            const remoteUser = occupant ? remoteUsers.find(u => String(u.uid) === String(occupant.id)) : null;
 
             return (
               <SeatCard
@@ -771,7 +777,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: '8px',
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center'
   },
   hostBtn: {
@@ -831,7 +837,7 @@ const styles = {
   },
   header: {
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '20px',
     padding: '16px',
@@ -896,7 +902,7 @@ const styles = {
     borderRadius: '10px',
     marginBottom: '16px',
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center'
   },
   seatsGrid: {
@@ -911,7 +917,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
     minHeight: '160px',
     opacity: 0.3
   },
@@ -946,7 +952,7 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
     position: 'relative'
   },
   deadOverlay: {
@@ -959,7 +965,7 @@ const styles = {
     height: '100%',
     display: 'flex',
     alignItems: 'center',
-    justify: 'center'
+    justifyContent: 'center'
   },
   actionVoteBtn: {
     fontSize: '9px',
@@ -987,39 +993,38 @@ const styles = {
     color: '#fff',
     border: 'none',
     borderRadius: '3px',
+    fontWeight: 'bold',
     cursor: 'pointer'
   },
   logContainer: {
     marginTop: '20px',
     background: '#020617',
-    border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '12px'
+    padding: '12px',
+    borderRadius: '10px',
+    border: '1px solid #1e293b'
   },
   logBox: {
     maxHeight: '100px',
     overflowY: 'auto'
   },
   chatBoxContainer: {
-    marginTop: '20px',
-    background: '#1e1b4b',
-    border: '1px solid #4338ca',
-    borderRadius: '12px',
-    padding: '16px'
+    marginTop: '16px',
+    background: '#450a0a',
+    padding: '12px',
+    borderRadius: '10px',
+    border: '1px solid #991b1b'
   },
   chatMessagesArea: {
-    height: '120px',
+    maxHeight: '120px',
     overflowY: 'auto',
-    background: '#0f172a',
-    borderRadius: '8px',
-    padding: '10px'
+    fontSize: '13px'
   },
   sendChatBtn: {
     padding: '8px 16px',
-    background: '#2563eb',
+    background: '#dc2626',
     color: '#fff',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '6px',
     fontWeight: 'bold',
     cursor: 'pointer'
   }

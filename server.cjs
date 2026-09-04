@@ -25,20 +25,46 @@ process.on('unhandledRejection', (reason) => console.error('[UNHANDLED REJECTION
 const APP_ID = process.env.AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475";
 const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
 
+// API Cấp Token Agora (Đã sửa lỗi UID để khớp với Socket.id / UserID)
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
+  // Nhận uid từ client gửi lên (thường là socket.id hoặc userId)
+  const uid = req.query.uid || 0; 
+
   if (!channelName) return res.status(400).json({ error: 'channelName is required' });
 
-  const uid = 0; 
   const role = RtcRole.PUBLISHER;
   const expirationTimeInSeconds = 3600;
   const currentTimestamp = Math.floor(Date.now() / 1000);
   const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
 
   try {
-    const token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
-    return res.json({ token });
+    let token;
+    // Nếu UID gửi lên là Dạng Chuỗi (Ví dụ socket.id dạng "abc_123")
+    if (typeof uid === 'string' && isNaN(Number(uid))) {
+      token = RtcTokenBuilder.buildTokenWithUserAccount(
+        APP_ID, 
+        APP_CERTIFICATE, 
+        channelName, 
+        uid, 
+        role, 
+        privilegeExpiredTs
+      );
+    } else {
+      // Nếu UID là Số hoặc mặc định
+      token = RtcTokenBuilder.buildTokenWithUid(
+        APP_ID, 
+        APP_CERTIFICATE, 
+        channelName, 
+        Number(uid) || 0, 
+        role, 
+        privilegeExpiredTs
+      );
+    }
+
+    return res.json({ token, uid });
   } catch (err) {
+    console.error("Lỗi tạo Agora Token:", err);
     return res.status(500).json({ error: "Failed to generate token" });
   }
 });
@@ -62,7 +88,7 @@ function sanitizeRoomForPlayer(room, recipientUserId) {
     };
   });
 
-  // Tạo bản sao room loại bỏ thuộc tính Timer (tránh lỗi JSON khi gửi socket)
+  // Tạo bản sao room loại bỏ thuộc tính Timer
   const { phaseTimer, disconnectTimeouts, ...cleanRoom } = room;
   cleanRoom.players = cleanPlayers;
 
@@ -86,7 +112,7 @@ function broadcastRoomState(roomId) {
   });
 }
 
-// Cập nhật quyền Mic & Cam (Chỉ người sống / Sói đêm mới bật được)
+// Cập nhật quyền Mic & Cam
 function updateMediaPermissions(room) {
   const isNight = room.phase === 'NIGHT';
 
@@ -105,7 +131,7 @@ function updateMediaPermissions(room) {
   });
 }
 
-// Kiểm tra điều kiện thắng/thua chính xác
+// Kiểm tra điều kiện thắng/thua
 function checkWinCondition(room) {
   const players = Object.values(room.players);
   const alivePlayers = players.filter(p => p.isAlive);
@@ -224,7 +250,6 @@ function handleNightTimeout(roomId) {
   let healedSeat = room.witchHealTarget;
   let poisonedSeat = room.witchPoisonTarget;
 
-  // Xử lý tính toán bảo vệ/cứu/cắn
   if (bittenSeat && bittenSeat !== guardedSeat && bittenSeat !== healedSeat) {
     deadSeatsThisNight.push(bittenSeat);
   }
@@ -333,7 +358,7 @@ io.on('connection', (socket) => {
       id: socket.id,
       userId: pKey,
       name: name || oldData.name || 'Người chơi',
-      seat: seat !== undefined ? seat : oldData.seat,
+      seat: seat !== undefined ? parseInt(seat) : oldData.seat,
       isHost: finalIsHost,
       role: oldData.role || null,
       statusEffect: oldData.statusEffect || null, 
@@ -497,7 +522,7 @@ io.on('connection', (socket) => {
     const player = room.players[socket.userId];
     if (!player || !player.isAlive) return;
 
-    const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
+    const targetPlayer = Object.values(room.players).find(p => p.seat === parseInt(targetSeat));
     if (!targetPlayer && actionType !== 'WITCH_SAVE') return;
 
     if (actionType === 'GUARD' && player.role === 'GUARD') {
