@@ -45,12 +45,56 @@ app.get('/api/agora-token', (req, res) => {
 
 const rooms = {};
 
+// Hàm làm sạch dữ liệu phòng gửi về Client (Tránh lỗi Socket Serialization & giấu Role)
+function sanitizeRoomForPlayer(room, recipientUserId) {
+  const cleanPlayers = {};
+  const recipientPlayer = room.players[recipientUserId];
+
+  Object.values(room.players).forEach(p => {
+    const isSelf = p.userId === recipientUserId;
+    const isBothWolves = recipientPlayer && recipientPlayer.role === 'WOLF' && p.role === 'WOLF';
+    const isGameOver = room.phase === 'END';
+
+    cleanPlayers[p.userId] = {
+      ...p,
+      // Chỉ tiết lộ Role nếu là chính mình, cùng phe Sói, hoặc game đã kết thúc
+      role: (isSelf || isBothWolves || isGameOver) ? p.role : null
+    };
+  });
+
+  // Tạo bản sao room loại bỏ thuộc tính Timer (tránh lỗi JSON khi gửi socket)
+  const { phaseTimer, disconnectTimeouts, ...cleanRoom } = room;
+  cleanRoom.players = cleanPlayers;
+
+  return cleanRoom;
+}
+
+// Hàm gửi dữ liệu phòng được lọc riêng cho từng Socket
+function broadcastRoomState(roomId) {
+  const room = rooms[roomId];
+  if (!room) return;
+
+  const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
+  if (!socketsInRoom) return;
+
+  socketsInRoom.forEach(socketId => {
+    const clientSocket = io.sockets.sockets.get(socketId);
+    if (clientSocket && clientSocket.userId) {
+      const sanitizedData = sanitizeRoomForPlayer(room, clientSocket.userId);
+      clientSocket.emit('room_state_update', sanitizedData);
+    }
+  });
+}
+
 // Cập nhật quyền Mic & Cam (Chỉ người sống / Sói đêm mới bật được)
 function updateMediaPermissions(room) {
   const isNight = room.phase === 'NIGHT';
 
   Object.values(room.players).forEach(player => {
-    if (isNight) {
+    if (room.phase === 'LOBBY' || room.phase === 'END') {
+      player.canSpeak = true;
+      player.canCam = true;
+    } else if (isNight) {
       const isWolf = (player.role === 'WOLF');
       player.canSpeak = (isWolf && player.isAlive);
       player.canCam = (isWolf && player.isAlive);
@@ -165,7 +209,7 @@ function handleDayTimeout(roomId) {
   }
 
   updateMediaPermissions(room);
-  io.to(roomId).emit('room_state_update', room);
+  broadcastRoomState(roomId);
   io.to(roomId).emit('media_permission_update', room.players);
 }
 
@@ -212,7 +256,7 @@ function handleNightTimeout(roomId) {
     room.phase = 'END';
     room.winner = winner;
     clearRoomTimer(room);
-    io.to(roomId).emit('room_state_update', room);
+    broadcastRoomState(roomId);
     io.to(roomId).emit('media_permission_update', room.players);
     return;
   }
@@ -222,7 +266,7 @@ function handleNightTimeout(roomId) {
   startPhaseTimer(roomId, dayTime, handleDayTimeout);
 
   updateMediaPermissions(room);
-  io.to(roomId).emit('room_state_update', room);
+  broadcastRoomState(roomId);
   io.to(roomId).emit('media_permission_update', room.players);
 }
 
@@ -302,7 +346,7 @@ io.on('connection', (socket) => {
     };
 
     updateMediaPermissions(room);
-    io.to(roomId).emit('room_state_update', room);
+    broadcastRoomState(roomId);
     io.to(roomId).emit('media_permission_update', room.players);
   });
 
@@ -322,8 +366,8 @@ io.on('connection', (socket) => {
         delete room.disconnectTimeouts[userId];
       }
 
-      socket.emit('sync_game_state', room);
-      io.to(roomId).emit('room_state_update', room);
+      socket.emit('sync_game_state', sanitizeRoomForPlayer(room, userId));
+      broadcastRoomState(roomId);
     }
   });
 
@@ -331,11 +375,11 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (room && room.players[socket.userId]?.isHost) {
       room.settings = { ...room.settings, ...settings };
-      io.to(roomId).emit('room_state_update', room);
+      broadcastRoomState(roomId);
     }
   });
 
-  // 3. Bắt đầu Game (Sửa lỗi thiếu/thừa Role)
+  // 3. Bắt đầu Game
   socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.userId]?.isHost) return;
@@ -343,8 +387,8 @@ io.on('connection', (socket) => {
     const playerKeys = Object.keys(room.players);
     const totalPlayers = playerKeys.length;
 
-    if (totalPlayers < 3) {
-      return socket.emit('notification', { message: 'Cần tối thiểu 3 người chơi để bắt đầu!' });
+    if (totalPlayers < 1) {
+      return socket.emit('notification', { message: 'Cần tối thiểu 1 người chơi để bắt đầu!' });
     }
 
     const { wolfCount = 2, guardCount = 1, seerCount = 1, witchCount = 1, infectedCount = 0 } = room.settings;
@@ -356,16 +400,13 @@ io.on('connection', (socket) => {
     for (let i = 0; i < witchCount; i++) rolesPool.push('WITCH');
     for (let i = 0; i < infectedCount; i++) rolesPool.push('INFECTED');
 
-    // Nếu các chức năng vượt quá số lượng người chơi
     if (rolesPool.length > totalPlayers) {
       rolesPool = rolesPool.slice(0, totalPlayers);
     } 
-    // Bù thêm VILLAGER cho đủ số lượng phòng
     while (rolesPool.length < totalPlayers) {
       rolesPool.push('VILLAGER');
     }
 
-    // Trộn ngẫu nhiên Role
     rolesPool.sort(() => Math.random() - 0.5);
 
     playerKeys.forEach((pKey, index) => {
@@ -388,7 +429,7 @@ io.on('connection', (socket) => {
     room.witchPoisonTarget = null;
 
     updateMediaPermissions(room);
-    io.to(roomId).emit('room_state_update', room);
+    broadcastRoomState(roomId);
     io.to(roomId).emit('media_permission_update', room.players);
     
     const nightTime = room.settings.nightDuration || 60;
@@ -419,7 +460,7 @@ io.on('connection', (socket) => {
       }
 
       updateMediaPermissions(room);
-      io.to(roomId).emit('room_state_update', room);
+      broadcastRoomState(roomId);
       io.to(roomId).emit('media_permission_update', room.players);
     }
   });
@@ -434,7 +475,7 @@ io.on('connection', (socket) => {
     if (!room.votes) room.votes = {};
     room.votes[voter.seat] = targetSeat;
 
-    io.to(roomId).emit('room_state_update', room);
+    broadcastRoomState(roomId);
   };
 
   socket.on('cast_vote', ({ roomId, targetSeat }) => handleVoteAction(roomId, targetSeat));
@@ -444,7 +485,7 @@ io.on('connection', (socket) => {
     const room = rooms[roomId];
     if (room && room.players[socket.userId]?.isHost) {
       room.votes = {};
-      io.to(roomId).emit('room_state_update', room);
+      broadcastRoomState(roomId);
     }
   });
 
@@ -476,14 +517,12 @@ io.on('connection', (socket) => {
       };
       room.wolfMessages.push(wolfMsg);
 
-      // Chỉ phát tin nhắn chọn cắn cho các con Sói khác
       Object.values(room.players).forEach(p => {
         if (p.role === 'WOLF' && p.isAlive) {
           io.to(p.id).emit('wolf_chat_update', room.wolfMessages);
         }
       });
 
-      // Thông báo cho Phù thủy nạn nhân bị cắn
       const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
       if (witchPlayer && room.players[witchPlayer.userId]) {
         io.to(room.players[witchPlayer.userId].id).emit('witch_target_info', { targetSeat: targetSeat });
@@ -512,10 +551,10 @@ io.on('connection', (socket) => {
       });
     }
 
-    io.to(roomId).emit('room_state_update', room);
+    broadcastRoomState(roomId);
   });
 
-  // 5. Chat riêng Sói & Chat Hồn Ma (Bảo mật 100%)
+  // 5. Chat riêng Sói & Chat Hồn Ma
   socket.on('send_wolf_chat', ({ roomId, message }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -583,7 +622,6 @@ io.on('connection', (socket) => {
             clearRoomTimer(room);
             delete rooms[roomId];
           } else {
-            // Tự động chuyển quyền Host nếu Host out phòng
             if (wasHost) {
               const remainingPlayers = Object.values(room.players);
               if (remainingPlayers.length > 0) {
@@ -592,14 +630,14 @@ io.on('connection', (socket) => {
               }
             }
 
-            io.to(roomId).emit('room_state_update', room);
+            broadcastRoomState(roomId);
             io.to(roomId).emit('media_permission_update', room.players);
           }
         }
         if (room.disconnectTimeouts) delete room.disconnectTimeouts[userId];
       }, 45000);
 
-      io.to(roomId).emit('room_state_update', room);
+      broadcastRoomState(roomId);
       io.to(roomId).emit('media_permission_update', room.players);
     }
   });

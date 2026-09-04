@@ -8,6 +8,34 @@ const AGORA_APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
 const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
 const agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
+// CSS Inject cho hiệu ứng ban đêm & animation
+const GlobalStyles = () => (
+  <style>{`
+    @keyframes shake {
+      0%, 100% { transform: translate(0, 0); }
+      20%, 60% { transform: translate(-5px, 5px); }
+      40%, 80% { transform: translate(5px, -5px); }
+    }
+    .card-shake { animation: shake 0.5s ease-in-out; }
+    
+    .slash-effect {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: linear-gradient(135deg, transparent 45%, rgba(239, 68, 68, 0.8) 50%, transparent 55%);
+      pointer-events: none; z-index: 999; animation: fadeSlash 0.8s forwards;
+    }
+    @keyframes fadeSlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+    .lightning-effect {
+      position: absolute; inset: 0; background: rgba(255, 255, 255, 0.15);
+      pointer-events: none; opacity: 0; animation: lightning 4s infinite;
+    }
+    @keyframes lightning {
+      0%, 90%, 100% { opacity: 0; }
+      92%, 94% { opacity: 0.8; }
+    }
+  `}</style>
+);
+
 // Component phát Video/Audio Agora
 const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
   const containerRef = useRef(null);
@@ -51,7 +79,7 @@ const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
   );
 });
 
-// Sub-component hiển thị từng ô ghế (Tối ưu performance)
+// Component hiển thị ghế
 const SeatCard = memo(({ 
   seatNum, occupant, isMe, remoteUser, isNight, isDay, isHost, myRole, localTracks, isVideoOn, socket 
 }) => {
@@ -168,6 +196,7 @@ export default function App() {
 
   const [chatMessage, setChatMessage] = useState('');
   const [wolfChatList, setWolfChatList] = useState([]);
+  const [publicLogs, setPublicLogs] = useState([]);
 
   const [roomId, setRoomId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -177,8 +206,6 @@ export default function App() {
   const [roomState, setRoomState] = useState({
     phase: 'LOBBY',
     players: {},
-    wolfMessages: [],
-    ghostMessages: [],
     votes: {},
   });
 
@@ -234,17 +261,10 @@ export default function App() {
   const isNight = roomState.phase === 'NIGHT';
   const isDay = roomState.phase === 'DAY';
 
-  // Quản lý Socket Events
+  // Socket Event Handler Stable Setup
   useEffect(() => {
-    const handleConnect = () => {
-      setIsConnected(true);
-      if (hasJoined && roomId) {
-        socket.emit('join_room', { roomId, name: playerName.trim(), seat: selectedSeat, isHost });
-      }
-    };
-
+    const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
-
     const handleTimerUpdate = (data) => {
       if (data && typeof data.timeLeft === 'number') setTimeLeft(data.timeLeft);
     };
@@ -272,7 +292,12 @@ export default function App() {
       alert(`🔮 KẾT QUẢ TIÊN TRI (Ghế #${data.seat} - ${data.name}): ${data.isWolf ? '🐺 Là SÓI!' : '🛡️ Vô Tội!'}`);
     };
 
-    const handleNotification = (data) => alert(data.message);
+    const handleNotification = (data) => {
+      if (data?.message) {
+        setPublicLogs(prev => [...prev, data.message]);
+        alert(data.message);
+      }
+    };
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
@@ -291,19 +316,13 @@ export default function App() {
       socket.off('seer_result', handleSeerResult);
       socket.off('notification', handleNotification);
     };
-  }, [hasJoined, roomId, playerName, selectedSeat, isHost, playSoundEffect]);
+  }, [playSoundEffect]);
 
-  // Âm thanh ban đêm
+  // Audio Ban Đêm
   useEffect(() => {
     if (isNight) {
-      if (laughAudioRef.current) {
-        laughAudioRef.current.volume = 0.3;
-        laughAudioRef.current.play().catch(() => {});
-      }
-      if (windAudioRef.current) {
-        windAudioRef.current.volume = 0.25;
-        windAudioRef.current.play().catch(() => {});
-      }
+      if (laughAudioRef.current) laughAudioRef.current.play().catch(() => {});
+      if (windAudioRef.current) windAudioRef.current.play().catch(() => {});
     } else {
       if (laughAudioRef.current) {
         laughAudioRef.current.pause();
@@ -316,20 +335,22 @@ export default function App() {
     }
   }, [isNight]);
 
-  // Quản lý Quyền Mic / Cam
+  // Bật/tắt Micro và Camera trực tiếp
   useEffect(() => {
-    if (!localTracks.audioTrack) return;
-    const canSpeak = myPlayerInfo?.canSpeak !== false;
-    localTracks.audioTrack.setEnabled(canSpeak && isMicOn);
+    if (localTracks.audioTrack) {
+      const canSpeak = myPlayerInfo?.canSpeak !== false;
+      localTracks.audioTrack.setEnabled(canSpeak && isMicOn);
+    }
   }, [myPlayerInfo?.canSpeak, isMicOn, localTracks.audioTrack]);
 
   useEffect(() => {
-    if (!localTracks.videoTrack) return;
-    const canCam = myPlayerInfo?.canCam !== false;
-    localTracks.videoTrack.setEnabled(canCam && isVideoOn);
+    if (localTracks.videoTrack) {
+      const canCam = myPlayerInfo?.canCam !== false;
+      localTracks.videoTrack.setEnabled(canCam && isVideoOn);
+    }
   }, [myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
-  // Khởi tạo Agora RTC Kênh
+  // Khởi tạo Agora RTC
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
@@ -421,10 +442,11 @@ export default function App() {
     setChatMessage('');
   };
 
-  // Màn hình chọn ghế / Tham gia
+  // Màn hình chờ
   if (!hasJoined) {
     return (
       <div style={styles.lobbyContainer}>
+        <GlobalStyles />
         <h1 style={styles.lobbyTitle}>🐺 SƠ ĐỒ CHỌN GHẾ MA SÓI</h1>
         <form onSubmit={handleJoinGame} style={styles.lobbyForm}>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
@@ -509,7 +531,7 @@ export default function App() {
     );
   }
 
-  // Màn hình chính ván đấu
+  // Màn hình chơi chính
   return (
     <div 
       className={isShaking ? "card-shake" : ""}
@@ -518,6 +540,7 @@ export default function App() {
         backgroundColor: isNight ? '#090d16' : '#0f172a',
       }}
     >
+      <GlobalStyles />
       {isSlashing && <div className="slash-effect" />}
 
       {!isConnected && (
@@ -528,7 +551,6 @@ export default function App() {
 
       {isNight && (
         <div style={styles.nightEffectsOverlay}>
-          <div className="night-blood-overlay" />
           <div className="lightning-effect" />
           <audio ref={laughAudioRef} loop src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" />
           <audio ref={windAudioRef} loop src="https://actions.google.com/sounds/v1/ambiences/creepy_wind.ogg" />
@@ -558,11 +580,7 @@ export default function App() {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={copyInviteLink} style={styles.copyBtnHeader}>📋 Link Mời</button>
             <button 
-              onClick={() => {
-                const nextMic = !isMicOn;
-                setIsMicOn(nextMic);
-                localTracks.audioTrack?.setEnabled(nextMic);
-              }} 
+              onClick={() => setIsMicOn(!isMicOn)} 
               style={{
                 ...styles.mediaToggleBtn,
                 background: isMicOn ? '#059669' : '#dc2626'
@@ -571,11 +589,7 @@ export default function App() {
               {isMicOn ? '🎤 Mic Bật' : '🎙️ Mic Tắt'}
             </button>
             <button 
-              onClick={() => {
-                const nextCam = !isVideoOn;
-                setIsVideoOn(nextCam);
-                localTracks.videoTrack?.setEnabled(nextCam);
-              }} 
+              onClick={() => setIsVideoOn(!isVideoOn)} 
               style={{
                 ...styles.mediaToggleBtn,
                 background: isVideoOn ? '#059669' : '#dc2626'
@@ -616,7 +630,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Danh sách 20 ghế */}
+        {/* Sơ đồ 20 ghế */}
         <main style={styles.seatsGrid}>
           {[...Array(20)].map((_, index) => {
             const seatNum = index + 1;
@@ -643,9 +657,21 @@ export default function App() {
           })}
         </main>
 
-        {/* Chat riêng Sói */}
+        {/* Nhật ký diễn biến Game */}
+        {publicLogs.length > 0 && (
+          <div style={styles.logContainer}>
+            <h4 style={{ margin: '0 0 6px 0', color: '#38bdf8' }}>📜 Nhật Ký Trận Đấu</h4>
+            <div style={styles.logBox}>
+              {publicLogs.map((log, i) => (
+                <div key={i} style={{ fontSize: '12px', color: '#cbd5e1', marginBottom: '4px' }}>• {log}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Chat Phe Sói */}
         {isNight && myPlayerInfo?.role === 'WOLF' && (
-          <div style={styles.chatBoxContainer} className="wolf-chat-container">
+          <div style={styles.chatBoxContainer}>
             <h4 style={{ margin: '0 0 8px 0', color: '#ef4444' }}>💬 Trò chuyện Phe Sói Ban Đêm</h4>
             <div style={styles.chatMessagesArea}>
               {wolfChatList.map((msg, idx) => (
@@ -660,7 +686,7 @@ export default function App() {
                 type="text" 
                 value={chatMessage} 
                 onChange={e => setChatMessage(e.target.value)} 
-                placeholder="Nhập tin nhắn cho Sói khác..."
+                placeholder="Nhập tin nhắn..."
                 style={{ ...styles.input, flex: 1 }}
               />
               <button type="submit" style={styles.sendChatBtn}>Gửi</button>
@@ -745,7 +771,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: '8px',
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center'
   },
   hostBtn: {
@@ -805,7 +831,7 @@ const styles = {
   },
   header: {
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center',
     marginBottom: '20px',
     padding: '16px',
@@ -870,7 +896,7 @@ const styles = {
     borderRadius: '10px',
     marginBottom: '16px',
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center'
   },
   seatsGrid: {
@@ -885,7 +911,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    justify: 'center',
     minHeight: '160px',
     opacity: 0.3
   },
@@ -920,7 +946,7 @@ const styles = {
     overflow: 'hidden',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
+    justify: 'center',
     position: 'relative'
   },
   deadOverlay: {
@@ -933,7 +959,7 @@ const styles = {
     height: '100%',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justify: 'center'
   },
   actionVoteBtn: {
     fontSize: '9px',
@@ -962,6 +988,17 @@ const styles = {
     border: 'none',
     borderRadius: '3px',
     cursor: 'pointer'
+  },
+  logContainer: {
+    marginTop: '20px',
+    background: '#020617',
+    border: '1px solid #1e293b',
+    borderRadius: '12px',
+    padding: '12px'
+  },
+  logBox: {
+    maxHeight: '100px',
+    overflowY: 'auto'
   },
   chatBoxContainer: {
     marginTop: '20px',
