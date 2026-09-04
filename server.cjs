@@ -1,670 +1,458 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const { RtcTokenBuilder, RtcRole } = require('agora-access-token');
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+import AgoraRTC from 'agora-rtc-sdk-ng';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+// Thay bằng URL Server Render của bạn
+const SERVER_URL = "https://game-ma-soi.onrender.com"; 
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  },
-  pingTimeout: 60000,
-  pingInterval: 25000
+const socket = io(SERVER_URL, {
+  autoConnect: false,
+  reconnection: true
 });
 
-// Chống crash Server do lỗi không mong muốn
-process.on('uncaughtException', (err) => console.error('[SERVER CRASH PREVENTED]', err));
-process.on('unhandledRejection', (reason) => console.error('[UNHANDLED REJECTION]', reason));
+const clientAgora = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-const APP_ID = process.env.AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475";
-const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
+export default function WerewolfGame() {
+  // --- States Quản lý Người chơi & Phòng ---
+  const [joined, setJoined] = useState(false);
+  const [roomId, setRoomId] = useState("phong-mac-dinh-123");
+  const [userName, setUserName] = useState("");
+  const [mySeat, setMySeat] = useState(1);
+  const [userId] = useState(() => "user_" + Math.random().toString(36).substring(2, 9));
 
-// API Cấp Token Agora (Đã sửa: Ép dùng String Account cho Socket.id)
-app.get('/api/agora-token', (req, res) => {
-  const channelName = req.query.channelName;
-  const rawUid = req.query.uid;
+  // --- States Game Sync từ Server ---
+  const [roomState, setRoomState] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [notifications, setNotifications] = useState([]);
 
-  if (!channelName) return res.status(400).json({ error: 'channelName is required' });
+  // --- States Media (Cam/Mic) ---
+  const [micActive, setMicActive] = useState(false);
+  const [camActive, setCamActive] = useState(false);
+  const localAudioTrack = useRef(null);
+  const localVideoTrack = useRef(null);
 
-  const role = RtcRole.PUBLISHER;
-  const expirationTimeInSeconds = 3600 * 24; // 24 giờ
-  const currentTimestamp = Math.floor(Date.now() / 1000);
-  const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+  // --- States Chức năng Đêm & Modal ---
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [seerResultModal, setSeerResultModal] = useState(null);
+  const [witchTarget, setWitchTarget] = useState(null);
 
-  try {
-    let token;
-    
-    // Nếu truyền UID dạng String (socket.id)
-    if (rawUid && typeof rawUid === 'string') {
-      token = RtcTokenBuilder.buildTokenWithAccount(APP_ID, APP_CERTIFICATE, channelName, rawUid, role, privilegeExpiredTs);
-      return res.json({ token, uid: rawUid });
-    }
+  // --- States Chat ---
+  const [wolfChatMsg, setWolfChatMsg] = useState("");
+  const [wolfLogs, setWolfLogs] = useState([]);
+  const [ghostChatMsg, setGhostChatMsg] = useState("");
+  const [ghostLogs, setGhostLogs] = useState([]);
 
-    // Nếu truyền UID dạng số
-    if (rawUid !== undefined && rawUid !== null && !isNaN(Number(rawUid))) {
-      const uid = Number(rawUid);
-      token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
-      return res.json({ token, uid });
-    } 
-
-    // Mặc định nếu không có UID
-    token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, 0, role, privilegeExpiredTs);
-    return res.json({ token, uid: 0 });
-
-  } catch (err) {
-    console.error("Lỗi tạo Agora Token:", err);
-    return res.status(500).json({ error: "Failed to generate token" });
-  }
-});
-
-const rooms = {};
-
-// Hàm làm sạch dữ liệu phòng gửi về Client
-function sanitizeRoomForPlayer(room, recipientUserId) {
-  const cleanPlayers = {};
-  const recipientPlayer = room.players[recipientUserId];
-
-  Object.values(room.players).forEach(p => {
-    const isSelf = p.userId === recipientUserId;
-    const isBothWolves = recipientPlayer && recipientPlayer.role === 'WOLF' && p.role === 'WOLF';
-    const isGameOver = room.phase === 'END';
-
-    cleanPlayers[p.userId] = {
-      ...p,
-      // Chỉ tiết lộ Role nếu là chính mình, cùng phe Sói, hoặc game đã kết thúc
-      role: (isSelf || isBothWolves || isGameOver) ? p.role : null
-    };
+  // --- Form Settings state cho Host ---
+  const [tempSettings, setTempSettings] = useState({
+    wolfCount: 2,
+    guardCount: 1,
+    seerCount: 1,
+    witchCount: 1,
+    infectedCount: 0,
+    villagerCount: 2,
+    dayDuration: 120,
+    nightDuration: 60
   });
 
-  const { phaseTimer, disconnectTimeouts, ...cleanRoom } = room;
-  cleanRoom.players = cleanPlayers;
+  // 1. Lắng nghe các sự kiện WebSocket
+  useEffect(() => {
+    socket.connect();
 
-  return cleanRoom;
-}
-
-// Hàm gửi dữ liệu phòng được lọc riêng cho từng Socket
-function broadcastRoomState(roomId) {
-  const room = rooms[roomId];
-  if (!room) return;
-
-  const socketsInRoom = io.sockets.adapter.rooms.get(roomId);
-  if (!socketsInRoom) return;
-
-  socketsInRoom.forEach(socketId => {
-    const clientSocket = io.sockets.sockets.get(socketId);
-    if (clientSocket) {
-      const targetUserId = clientSocket.userId || clientSocket.id;
-      const sanitizedData = sanitizeRoomForPlayer(room, targetUserId);
-      clientSocket.emit('room_state_update', sanitizedData);
-    }
-  });
-}
-
-// Cập nhật quyền Mic & Cam
-function updateMediaPermissions(room) {
-  const isNight = room.phase === 'NIGHT';
-
-  Object.values(room.players).forEach(player => {
-    if (room.phase === 'LOBBY' || room.phase === 'END') {
-      player.canSpeak = true;
-      player.canCam = true;
-    } else if (isNight) {
-      const isWolf = (player.role === 'WOLF');
-      player.canSpeak = (isWolf && player.isAlive);
-      player.canCam = (isWolf && player.isAlive);
-    } else {
-      player.canSpeak = player.isAlive;
-      player.canCam = player.isAlive;
-    }
-  });
-}
-
-// Kiểm tra điều kiện thắng/thua
-function checkWinCondition(room) {
-  const players = Object.values(room.players);
-  const alivePlayers = players.filter(p => p.isAlive);
-  
-  const aliveWolves = alivePlayers.filter(p => p.role === 'WOLF');
-  const aliveVillagers = alivePlayers.filter(p => p.role !== 'WOLF');
-
-  if (aliveWolves.length === 0) return 'VILLAGER_WIN';
-  if (aliveWolves.length >= aliveVillagers.length) return 'WOLF_WIN';
-  return null;
-}
-
-function clearRoomTimer(room) {
-  if (room.phaseTimer) {
-    clearInterval(room.phaseTimer);
-    room.phaseTimer = null;
-  }
-}
-
-function startPhaseTimer(roomId, durationSeconds, nextPhaseCallback) {
-  const room = rooms[roomId];
-  if (!room) return;
-
-  clearRoomTimer(room);
-  room.timeLeft = durationSeconds;
-
-  room.phaseTimer = setInterval(() => {
-    if (!rooms[roomId]) {
-      clearRoomTimer(room);
-      return;
-    }
-
-    room.timeLeft--;
-    io.to(roomId).emit('timer_update', { timeLeft: room.timeLeft });
-
-    if (room.timeLeft <= 0) {
-      clearRoomTimer(room);
-      nextPhaseCallback(roomId);
-    }
-  }, 1000);
-}
-
-// Xử lý Hết giờ Ban ngày (Treo cổ)
-function handleDayTimeout(roomId) {
-  const room = rooms[roomId];
-  if (!room || room.phase !== 'DAY') return;
-
-  const votes = room.votes || {};
-  const voteCounts = {};
-
-  Object.values(votes).forEach(targetSeat => {
-    voteCounts[targetSeat] = (voteCounts[targetSeat] || 0) + 1;
-  });
-
-  let maxVotes = 0;
-  let targetSeatToExecute = null;
-  let isTie = false;
-
-  for (const [seat, count] of Object.entries(voteCounts)) {
-    if (count > maxVotes) {
-      maxVotes = count;
-      targetSeatToExecute = parseInt(seat);
-      isTie = false;
-    } else if (count === maxVotes) {
-      isTie = true;
-    }
-  }
-
-  if (targetSeatToExecute !== null && !isTie && maxVotes > 0) {
-    const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeatToExecute);
-    if (targetPlayer) {
-      targetPlayer.isAlive = false;
-      
-      io.to(roomId).emit('player_killed_fx', { 
-        victimSeat: targetSeatToExecute, 
-        cause: 'VOTE' 
-      });
-
-      io.to(roomId).emit('notification', { message: `⚖️ Làng đã quyết định treo cổ ghế #${targetSeatToExecute} (${targetPlayer.name})!` });
-    }
-  } else {
-    io.to(roomId).emit('notification', { message: '⚖️ Không có ai bị treo cổ hôm nay (Hòa phiếu hoặc trống).' });
-  }
-
-  const winner = checkWinCondition(room);
-  if (winner) {
-    room.phase = 'END';
-    room.winner = winner;
-    clearRoomTimer(room);
-  } else {
-    room.phase = 'NIGHT';
-    room.votes = {};
-    room.wolfTarget = null;
-    room.guardTarget = null;
-    room.witchHealTarget = null;
-    room.witchPoisonTarget = null;
-    Object.values(room.players).forEach(p => { p.statusEffect = null; });
-    
-    const nightTime = room.settings.nightDuration || 60;
-    startPhaseTimer(roomId, nightTime, handleNightTimeout);
-  }
-
-  updateMediaPermissions(room);
-  broadcastRoomState(roomId);
-  io.to(roomId).emit('media_permission_update', room.players);
-}
-
-// Xử lý Hết giờ Ban đêm
-function handleNightTimeout(roomId) {
-  const room = rooms[roomId];
-  if (!room || room.phase !== 'NIGHT') return;
-
-  let deadSeatsThisNight = [];
-  let bittenSeat = room.wolfTarget;
-  let guardedSeat = room.guardTarget;
-  let healedSeat = room.witchHealTarget;
-  let poisonedSeat = room.witchPoisonTarget;
-
-  if (bittenSeat && bittenSeat !== guardedSeat && bittenSeat !== healedSeat) {
-    deadSeatsThisNight.push(bittenSeat);
-  }
-
-  if (poisonedSeat && !deadSeatsThisNight.includes(poisonedSeat)) {
-    deadSeatsThisNight.push(poisonedSeat);
-  }
-
-  Object.values(room.players).forEach(p => {
-    if (deadSeatsThisNight.includes(parseInt(p.seat))) {
-      p.isAlive = false;
-      io.to(roomId).emit('player_killed_fx', { 
-        victimSeat: p.seat, 
-        cause: p.seat === poisonedSeat ? 'WITCH' : 'WOLF' 
-      });
-    }
-  });
-
-  room.lastGuardedSeat = room.guardTarget;
-
-  if (deadSeatsThisNight.length === 0) {
-    io.to(roomId).emit('notification', { message: '🌙 Đêm qua là một đêm an toàn, không có ai thiệt mạng!' });
-  } else {
-    io.to(roomId).emit('notification', { message: `☠️ Các ghế thiệt mạng trong đêm: ${deadSeatsThisNight.join(', ')}` });
-  }
-
-  const winner = checkWinCondition(room);
-  if (winner) {
-    room.phase = 'END';
-    room.winner = winner;
-    clearRoomTimer(room);
-    broadcastRoomState(roomId);
-    io.to(roomId).emit('media_permission_update', room.players);
-    return;
-  }
-
-  room.phase = 'DAY';
-  const dayTime = room.settings.dayDuration || 120;
-  startPhaseTimer(roomId, dayTime, handleDayTimeout);
-
-  updateMediaPermissions(room);
-  broadcastRoomState(roomId);
-  io.to(roomId).emit('media_permission_update', room.players);
-}
-
-io.on('connection', (socket) => {
-  socket.use(([event, ...args], next) => {
-    const now = Date.now();
-    if (!socket.lastActionTime) socket.lastActionTime = {};
-    if (socket.lastActionTime[event] && now - socket.lastActionTime[event] < 300) {
-      return; 
-    }
-    socket.lastActionTime[event] = now;
-    next();
-  });
-
-  // 1. Tham gia phòng chơi
-  socket.on('join_room', ({ roomId, userId, name, seat, isHost }) => {
-    socket.join(roomId);
-    socket.roomId = roomId;
-    socket.userId = userId || socket.id;
-
-    if (!rooms[roomId]) {
-      rooms[roomId] = {
-        phase: 'LOBBY',
-        winner: null,
-        players: {},
-        wolfMessages: [],
-        ghostMessages: [], 
-        votes: {}, 
-        wolfTarget: null,
-        guardTarget: null,
-        lastGuardedSeat: null,
-        witchHealTarget: null,
-        witchPoisonTarget: null,
-        timeLeft: 0,
-        phaseTimer: null,
-        disconnectTimeouts: {},
-        settings: {
-          wolfCount: 2, guardCount: 1, seerCount: 1, witchCount: 1,
-          infectedCount: 0, villagerCount: 2, nightDuration: 60, dayDuration: 120
-        }
-      };
-    }
-
-    const room = rooms[roomId];
-
-    if (room.disconnectTimeouts && room.disconnectTimeouts[socket.userId]) {
-      clearTimeout(room.disconnectTimeouts[socket.userId]);
-      delete room.disconnectTimeouts[socket.userId];
-    }
-
-    const existingHost = Object.values(room.players).find(p => p.isHost);
-    let finalIsHost = !!isHost;
-    if (!existingHost && Object.keys(room.players).length === 0) {
-      finalIsHost = true;
-    } else if (existingHost && existingHost.userId === socket.userId) {
-      finalIsHost = true;
-    }
-
-    const pKey = socket.userId;
-    const oldData = room.players[pKey] || {};
-
-    room.players[pKey] = {
-      id: socket.id,
-      userId: pKey,
-      name: name || oldData.name || 'Người chơi',
-      seat: seat !== undefined ? parseInt(seat) : oldData.seat,
-      isHost: finalIsHost,
-      role: oldData.role || null,
-      statusEffect: oldData.statusEffect || null, 
-      isAlive: oldData.isAlive !== undefined ? oldData.isAlive : true,
-      hasUsedHeal: oldData.hasUsedHeal || false,   
-      hasUsedPoison: oldData.hasUsedPoison || false,
-      canSpeak: true,
-      canCam: true,
-      isDisconnected: false
-    };
-
-    updateMediaPermissions(room);
-    broadcastRoomState(roomId);
-    io.to(roomId).emit('media_permission_update', room.players);
-  });
-
-  // 2. Reconnect khôi phục trạng thái
-  socket.on('reconnect_player', ({ roomId, userId }) => {
-    const targetUserId = userId || socket.id;
-    const room = rooms[roomId];
-    if (room && room.players[targetUserId]) {
-      socket.join(roomId);
-      socket.roomId = roomId;
-      socket.userId = targetUserId;
-
-      room.players[targetUserId].id = socket.id;
-      room.players[targetUserId].isDisconnected = false;
-
-      if (room.disconnectTimeouts && room.disconnectTimeouts[targetUserId]) {
-        clearTimeout(room.disconnectTimeouts[targetUserId]);
-        delete room.disconnectTimeouts[targetUserId];
-      }
-
-      socket.emit('sync_game_state', sanitizeRoomForPlayer(room, targetUserId));
-      broadcastRoomState(roomId);
-    }
-  });
-
-  socket.on('update_settings', ({ roomId, settings }) => {
-    const room = rooms[roomId];
-    const uId = socket.userId || socket.id;
-    if (room && room.players[uId]?.isHost) {
-      room.settings = { ...room.settings, ...settings };
-      broadcastRoomState(roomId);
-    }
-  });
-
-  // 3. Bắt đầu Game
-  socket.on('start_game', ({ roomId }) => {
-    const room = rooms[roomId];
-    const uId = socket.userId || socket.id;
-    if (!room || !room.players[uId]?.isHost) return;
-
-    const playerKeys = Object.keys(room.players);
-    const totalPlayers = playerKeys.length;
-
-    if (totalPlayers < 1) {
-      return socket.emit('notification', { message: 'Cần tối thiểu 1 người chơi để bắt đầu!' });
-    }
-
-    const { wolfCount = 2, guardCount = 1, seerCount = 1, witchCount = 1, infectedCount = 0 } = room.settings;
-
-    let rolesPool = [];
-    for (let i = 0; i < wolfCount; i++) rolesPool.push('WOLF');
-    for (let i = 0; i < guardCount; i++) rolesPool.push('GUARD');
-    for (let i = 0; i < seerCount; i++) rolesPool.push('SEER');
-    for (let i = 0; i < witchCount; i++) rolesPool.push('WITCH');
-    for (let i = 0; i < infectedCount; i++) rolesPool.push('INFECTED');
-
-    if (rolesPool.length > totalPlayers) {
-      rolesPool = rolesPool.slice(0, totalPlayers);
-    } 
-    while (rolesPool.length < totalPlayers) {
-      rolesPool.push('VILLAGER');
-    }
-
-    rolesPool.sort(() => Math.random() - 0.5);
-
-    playerKeys.forEach((pKey, index) => {
-      room.players[pKey].role = rolesPool[index];
-      room.players[pKey].statusEffect = null;
-      room.players[pKey].isAlive = true;
-      room.players[pKey].hasUsedHeal = false;
-      room.players[pKey].hasUsedPoison = false;
+    socket.on('room_state_update', (data) => {
+      setRoomState(data);
+      if (data.settings) setTempSettings(data.settings);
     });
 
-    room.phase = 'NIGHT';
-    room.winner = null;
-    room.wolfMessages = [];
-    room.ghostMessages = []; 
-    room.votes = {}; 
-    room.wolfTarget = null;
-    room.guardTarget = null;
-    room.lastGuardedSeat = null;
-    room.witchHealTarget = null;
-    room.witchPoisonTarget = null;
+    socket.on('timer_update', ({ timeLeft }) => {
+      setTimeLeft(timeLeft);
+    });
 
-    updateMediaPermissions(room);
-    broadcastRoomState(roomId);
-    io.to(roomId).emit('media_permission_update', room.players);
+    socket.on('notification', ({ message }) => {
+      setNotifications(prev => [message, ...prev.slice(0, 4)]);
+    });
+
+    socket.on('wolf_message_receive', (msg) => {
+      setWolfLogs(prev => [...prev, msg]);
+    });
+
+    socket.on('ghost_message_receive', (msg) => {
+      setGhostLogs(prev => [...prev, msg]);
+    });
+
+    socket.on('seer_result', (result) => {
+      setSeerResultModal(result);
+    });
+
+    socket.on('witch_target_info', ({ targetSeat }) => {
+      setWitchTarget(targetSeat);
+    });
+
+    return () => {
+      socket.off('room_state_update');
+      socket.off('timer_update');
+      socket.off('notification');
+      socket.off('wolf_message_receive');
+      socket.off('ghost_message_receive');
+      socket.off('seer_result');
+      socket.off('witch_target_info');
+      socket.disconnect();
+    };
+  }, []);
+
+  // 2. Tham gia phòng
+  const handleJoinRoom = () => {
+    if (!userName.trim()) return alert("Vui lòng nhập tên của bạn!");
     
-    const nightTime = room.settings.nightDuration || 60;
-    startPhaseTimer(roomId, nightTime, handleNightTimeout);
-  });
+    socket.emit('join_room', {
+      roomId,
+      userId,
+      name: userName,
+      seat: parseInt(mySeat),
+      isHost: false
+    });
 
-  socket.on('change_phase', ({ roomId, phase }) => {
-    const room = rooms[roomId];
-    const uId = socket.userId || socket.id;
-    if (room && room.players[uId]?.isHost) {
-      clearRoomTimer(room);
-
-      if (room.phase === 'NIGHT' && phase === 'DAY') {
-        handleNightTimeout(roomId);
-        return;
-      }
-
-      room.phase = phase;
-      if (phase === 'NIGHT') {
-        room.votes = {};
-        room.wolfTarget = null;
-        room.guardTarget = null;
-        room.witchHealTarget = null;
-        room.witchPoisonTarget = null;
-        Object.values(room.players).forEach(p => { p.statusEffect = null; });
-        startPhaseTimer(roomId, room.settings.nightDuration || 60, handleNightTimeout);
-      } else if (phase === 'DAY') {
-        startPhaseTimer(roomId, room.settings.dayDuration || 120, handleDayTimeout);
-      }
-
-      updateMediaPermissions(room);
-      broadcastRoomState(roomId);
-      io.to(roomId).emit('media_permission_update', room.players);
-    }
-  });
-
-  const handleVoteAction = (roomId, targetSeat) => {
-    const room = rooms[roomId];
-    if (!room || room.phase !== 'DAY') return;
-
-    const uId = socket.userId || socket.id;
-    const voter = room.players[uId];
-    if (!voter || !voter.isAlive) return;
-
-    if (!room.votes) room.votes = {};
-    room.votes[voter.seat] = targetSeat;
-
-    broadcastRoomState(roomId);
+    joinAgoraChannel(roomId, userId);
+    setJoined(true);
   };
 
-  socket.on('cast_vote', ({ roomId, targetSeat }) => handleVoteAction(roomId, targetSeat));
-  socket.on('vote_player', ({ roomId, targetSeat }) => handleVoteAction(roomId, targetSeat));
-
-  socket.on('clear_votes', ({ roomId }) => {
-    const room = rooms[roomId];
-    const uId = socket.userId || socket.id;
-    if (room && room.players[uId]?.isHost) {
-      room.votes = {};
-      broadcastRoomState(roomId);
+  // 3. Khởi tạo Agora RTC
+  const joinAgoraChannel = async (channel, uid) => {
+    try {
+      const res = await fetch(`${SERVER_URL}/api/agora-token?channelName=${channel}&uid=${uid}`);
+      const data = await res.json();
+      await clientAgora.join(process.env.REACT_APP_AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475", channel, data.token, uid);
+    } catch (err) {
+      console.error("Lỗi tham gia Agora:", err);
     }
-  });
+  };
 
-  // 4. Kỹ năng ban đêm & Gửi tin nhắn Sói
-  socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
-    const room = rooms[roomId];
-    if (!room || room.phase !== 'NIGHT') return;
-
-    const uId = socket.userId || socket.id;
-    const player = room.players[uId];
-    if (!player || !player.isAlive) return;
-
-    const targetPlayer = Object.values(room.players).find(p => p.seat === parseInt(targetSeat));
-    if (!targetPlayer && actionType !== 'WITCH_SAVE') return;
-
-    if (actionType === 'GUARD' && player.role === 'GUARD') {
-      if (room.lastGuardedSeat === targetSeat) {
-        return socket.emit('notification', { message: '🚫 Không thể bảo vệ cùng 1 người 2 đêm liên tiếp!' });
+  // Bật/Tắt Microphone
+  const toggleMic = async () => {
+    if (!micActive) {
+      localAudioTrack.current = await AgoraRTC.createMicrophoneAudioTrack();
+      await clientAgora.publish([localAudioTrack.current]);
+      setMicActive(true);
+    } else {
+      if (localAudioTrack.current) {
+        localAudioTrack.current.stop();
+        localAudioTrack.current.close();
       }
-      room.guardTarget = targetSeat;
-      targetPlayer.statusEffect = 'GUARDED';
-    } 
-    else if (actionType === 'WOLF' && player.role === 'WOLF') {
-      room.wolfTarget = targetSeat;
-      
-      const msgObj = { sender: 'Hệ thống', message: `🐺 Sói ${player.name} chọn cắn ghế #${targetSeat}` };
-      room.wolfMessages.push(msgObj);
+      setMicActive(false);
+    }
+  };
 
-      Object.values(room.players).forEach(p => {
-        if (p.role === 'WOLF' && p.isAlive) {
-          io.to(p.id).emit('wolf_message_receive', msgObj);
-        }
-      });
-
-      const witchPlayer = Object.values(room.players).find(p => p.role === 'WITCH' && p.isAlive);
-      if (witchPlayer && room.players[witchPlayer.userId]) {
-        io.to(room.players[witchPlayer.userId].id).emit('witch_target_info', { targetSeat: targetSeat });
+  // Bật/Tắt Camera
+  const toggleCam = async () => {
+    if (!camActive) {
+      localVideoTrack.current = await AgoraRTC.createCameraVideoTrack();
+      await clientAgora.publish([localVideoTrack.current]);
+      localVideoTrack.current.play(`cam-container-${userId}`);
+      setCamActive(true);
+    } else {
+      if (localVideoTrack.current) {
+        localVideoTrack.current.stop();
+        localVideoTrack.current.close();
       }
-    } 
-    else if (actionType === 'WITCH_SAVE' && player.role === 'WITCH') {
-      if (player.hasUsedHeal) return socket.emit('notification', { message: 'Đã dùng Bình Cứu rồi!' });
-      if (!room.wolfTarget) return socket.emit('notification', { message: 'Sói chưa chọn cắn ai!' });
-      
-      player.hasUsedHeal = true;
-      room.witchHealTarget = room.wolfTarget;
-      const savedPlayer = Object.values(room.players).find(p => p.seat === room.wolfTarget);
-      if (savedPlayer) savedPlayer.statusEffect = 'WITCH_SAVED';
-    } 
-    else if (actionType === 'WITCH_POISON' && player.role === 'WITCH') {
-      if (player.hasUsedPoison) return socket.emit('notification', { message: 'Đã dùng Bình Độc rồi!' });
-      player.hasUsedPoison = true;
-      room.witchPoisonTarget = targetSeat;
-      targetPlayer.statusEffect = 'WITCH_POISONED';
-    } 
-    else if (actionType === 'SEER_CHECK' && player.role === 'SEER') {
-      socket.emit('seer_result', {
-        seat: targetSeat,
-        name: targetPlayer.name,
-        isWolf: targetPlayer.role === 'WOLF'
-      });
+      setCamActive(false);
     }
+  };
 
-    broadcastRoomState(roomId);
-  });
+  // --- Các hành động của Host ---
+  const handleSaveSettings = () => {
+    socket.emit('update_settings', { roomId, settings: tempSettings });
+    setShowSettingsModal(false);
+  };
 
-  // 5. Chat riêng Sói & Chat Hồn Ma
-  socket.on('send_wolf_chat', ({ roomId, message, sender }) => {
-    const room = rooms[roomId];
-    if (!room) return;
-    const uId = socket.userId || socket.id;
-    const player = room.players[uId];
+  const handleStartGame = () => {
+    socket.emit('start_game', { roomId });
+  };
 
-    if (player && player.role === 'WOLF' && player.isAlive) {
-      const msgObj = {
-        sender: sender || player.name,
-        message: message
-      };
-      room.wolfMessages.push(msgObj);
+  const handleChangePhase = (phase) => {
+    socket.emit('change_phase', { roomId, phase });
+  };
 
-      Object.values(room.players).forEach(p => {
-        if (p.role === 'WOLF' && p.isAlive) {
-          io.to(p.id).emit('wolf_message_receive', msgObj);
-        }
-      });
-    }
-  });
+  const handleClearVotes = () => {
+    socket.emit('clear_votes', { roomId });
+  };
 
-  socket.on('send_ghost_chat', ({ roomId, message }) => {
-    const room = rooms[roomId];
-    if (!room) return;
-    const uId = socket.userId || socket.id;
-    const player = room.players[uId];
+  // --- Các hành động Người Chơi ---
+  const handleCastVote = (targetSeat) => {
+    socket.emit('cast_vote', { roomId, targetSeat });
+  };
 
-    if (player && !player.isAlive) {
-      const msgObj = {
-        sender: player.name,
-        message: message
-      };
-      room.ghostMessages.push(msgObj);
+  const handleNightAction = (targetSeat, actionType) => {
+    socket.emit('apply_night_action', { roomId, targetSeat, actionType });
+  };
 
-      Object.values(room.players).forEach(p => {
-        if (!p.isAlive) {
-          io.to(p.id).emit('ghost_message_receive', msgObj);
-        }
-      });
-    }
-  });
+  const handleSendWolfChat = () => {
+    if (!wolfChatMsg.trim()) return;
+    socket.emit('send_wolf_chat', { roomId, message: wolfChatMsg });
+    setWolfChatMsg("");
+  };
 
-  // 6. Xử lý ngắt kết nối
-  socket.on('disconnect', () => {
-    const roomId = socket.roomId;
-    const userId = socket.userId || socket.id;
+  const handleSendGhostChat = () => {
+    if (!ghostChatMsg.trim()) return;
+    socket.emit('send_ghost_chat', { roomId, message: ghostChatMsg });
+    setGhostChatMsg("");
+  };
 
-    if (roomId && rooms[roomId] && userId && rooms[roomId].players[userId]) {
-      const room = rooms[roomId];
-      const player = room.players[userId];
-      player.isDisconnected = true;
+  // Lấy thông tin bản thân từ RoomState
+  const myPlayer = roomState?.players?.[userId];
+  const isHost = myPlayer?.isHost;
 
-      if (!room.disconnectTimeouts) room.disconnectTimeouts = {};
-      
-      room.disconnectTimeouts[userId] = setTimeout(() => {
-        if (room.players[userId] && room.players[userId].isDisconnected) {
-          const wasHost = room.players[userId].isHost;
-          delete room.players[userId];
-          
-          if (room.votes && room.votes[player.seat]) {
-            delete room.votes[player.seat];
-          }
+  if (!joined) {
+    return (
+      <div style={styles.loginContainer}>
+        <h2>🐺 Ma Sói - Tham Gia Phòng</h2>
+        <input style={styles.input} placeholder="Tên người chơi" value={userName} onChange={e => setUserName(e.target.value)} />
+        <input style={styles.input} placeholder="Mã Phòng" value={roomId} onChange={e => setRoomId(e.target.value)} />
+        <select style={styles.input} value={mySeat} onChange={e => setMySeat(e.target.value)}>
+          {[...Array(15)].map((_, i) => (
+            <option key={i + 1} value={i + 1}>Ghế #{i + 1}</option>
+          ))}
+        </select>
+        <button style={styles.btnPrimary} onClick={handleJoinRoom}>Vào Phòng Game</button>
+      </div>
+    );
+  }
 
-          if (Object.keys(room.players).length === 0) {
-            clearRoomTimer(room);
-            delete rooms[roomId];
-          } else {
-            if (wasHost) {
-              const remainingPlayers = Object.values(room.players);
-              if (remainingPlayers.length > 0) {
-                remainingPlayers[0].isHost = true;
-                io.to(roomId).emit('notification', { message: `👑 ${remainingPlayers[0].name} đã trở thành Chủ Phòng mới.` });
-              }
-            }
+  return (
+    <div style={styles.appContainer}>
+      {/* 1. Header & Thanh trạng thái */}
+      <header style={styles.header}>
+        <div>
+          <h3>PHÒNG: {roomId}</h3>
+          <span>Thời gian: <b>{roomState?.phase === 'NIGHT' ? '🌙 BAN ĐÊM' : roomState?.phase === 'DAY' ? '☀️ BAN NGÀY' : '⏳ PHÒNG CHỜ'}</b> ({timeLeft}s)</span>
+        </div>
 
-            broadcastRoomState(roomId);
-            io.to(roomId).emit('media_permission_update', room.players);
-          }
-        }
-        if (room.disconnectTimeouts) delete room.disconnectTimeouts[userId];
-      }, 45000);
+        <div style={styles.actionGroup}>
+          <button style={micActive ? styles.btnSuccess : styles.btnDanger} onClick={toggleMic} disabled={!myPlayer?.canSpeak}>
+            {micActive ? '🎙️ Mic Bật' : '🎙️ Mic Tắt'}
+          </button>
+          <button style={camActive ? styles.btnSuccess : styles.btnDanger} onClick={toggleCam} disabled={!myPlayer?.canCam}>
+            {camActive ? '📹 Cam Bật' : '📹 Cam Tắt'}
+          </button>
+          <button style={styles.btnSecondary} onClick={() => window.location.reload()}>Thoát</button>
+        </div>
+      </header>
 
-      broadcastRoomState(roomId);
-      io.to(roomId).emit('media_permission_update', room.players);
-    }
-  });
-});
+      {/* Thông báo sự kiện */}
+      {notifications.length > 0 && (
+        <div style={styles.notificationBar}>
+          {notifications[0]}
+        </div>
+      )}
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-  console.log(`Server Ma Sói running on port ${PORT}`);
-});
+      {/* 2. Bảng Điều Khiển Quản Trò (Host Only) */}
+      {isHost && (
+        <div style={styles.hostPanel}>
+          <span>👑 <b>Bảng Điều Khiển Quản Trò</b></span>
+          <div style={styles.actionGroup}>
+            <button style={styles.btnWarning} onClick={() => setShowSettingsModal(true)}>⚙️ Cài Đặt Ván Đấu</button>
+            <button style={styles.btnInfo} onClick={() => handleChangePhase('NIGHT')}>🌙 Sang Đêm</button>
+            <button style={styles.btnInfo} onClick={() => handleChangePhase('DAY')}>☀️ Sang Ngày</button>
+            <button style={styles.btnWarning} onClick={handleClearVotes}>🧹 Xóa Bảng Vote</button>
+            <button style={styles.btnPrimary} onClick={handleStartGame}>🚀 Bắt Đầu Ván Đấu</button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Hiển thị vai trò bí mật */}
+      <div style={styles.roleBar}>
+        🔒 Vai trò bí mật của bạn: <b>{myPlayer?.role || 'Chưa chia bài'}</b>
+        {!myPlayer?.isAlive && <span style={{ color: 'red', marginLeft: '10px' }}>(ĐÃ CHẾT ☠️)</span>}
+      </div>
+
+      {/* 4. Sơ đồ các ghế người chơi (Grid 14-15 ghế) */}
+      <div style={styles.seatsGrid}>
+        {[...Array(15)].map((_, idx) => {
+          const seatNum = idx + 1;
+          const playerOnSeat = Object.values(roomState?.players || {}).find(p => p.seat === seatNum);
+
+          return (
+            <div key={seatNum} style={{ ...styles.seatCard, border: playerOnSeat ? '2px solid #6366f1' : '1px dashed #4b5563' }}>
+              <div style={styles.seatHeader}>
+                <span>Ghế #{seatNum}</span>
+                {playerOnSeat?.isHost && <span style={styles.hostBadge}>Host</span>}
+              </div>
+
+              {playerOnSeat ? (
+                <div style={styles.seatBody}>
+                  <div id={`cam-container-${playerOnSeat.userId}`} style={styles.camBox}>
+                    {!camActive && <span>{playerOnSeat.name}</span>}
+                  </div>
+                  
+                  <div style={styles.playerInfo}>
+                    <b>{playerOnSeat.name} {playerOnSeat.userId === userId ? '(Bạn)' : ''}</b>
+                    <div>Trạng thái: {playerOnSeat.isAlive ? '🟢 Sống' : '☠️ Đã chết'}</div>
+                    {playerOnSeat.role && <div>Bài: {playerOnSeat.role}</div>}
+                  </div>
+
+                  {/* Thao tác tương tác ban ngày (Vote) */}
+                  {roomState?.phase === 'DAY' && myPlayer?.isAlive && playerOnSeat.isAlive && (
+                    <button style={styles.btnVote} onClick={() => handleCastVote(seatNum)}>
+                      ✋ Vote ({Object.values(roomState.votes || {}).filter(v => v === seatNum).length})
+                    </button>
+                  )}
+
+                  {/* Thao tác tương tác ban đêm theo Vai trò */}
+                  {roomState?.phase === 'NIGHT' && myPlayer?.isAlive && playerOnSeat.isAlive && (
+                    <div style={styles.nightActions}>
+                      {myPlayer.role === 'WOLF' && (
+                        <button style={styles.btnDangerSmall} onClick={() => handleNightAction(seatNum, 'WOLF')}>🐺 Cắn</button>
+                      )}
+                      {myPlayer.role === 'GUARD' && (
+                        <button style={styles.btnInfoSmall} onClick={() => handleNightAction(seatNum, 'GUARD')}>🛡️ Bảo vệ</button>
+                      )}
+                      {myPlayer.role === 'SEER' && (
+                        <button style={styles.btnWarningSmall} onClick={() => handleNightAction(seatNum, 'SEER_CHECK')}>👁️ Soi</button>
+                      )}
+                      {myPlayer.role === 'WITCH' && (
+                        <button style={styles.btnDangerSmall} onClick={() => handleNightAction(seatNum, 'WITCH_POISON')}>🧪 Độc</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={styles.emptySeat}>Ghế Trống</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 5. Chức năng riêng của Phù Thủy (Cứu người bị cắn) */}
+      {roomState?.phase === 'NIGHT' && myPlayer?.role === 'WITCH' && myPlayer?.isAlive && (
+        <div style={styles.specialPanel}>
+          🧪 <b>Bảng Phù Thủy:</b> 
+          {witchTarget ? ` Đêm nay Ghế #${witchTarget} bị Sói cắn!` : ' Sói chưa cắn ai.'}
+          {witchTarget && !myPlayer.hasUsedHeal && (
+            <button style={styles.btnSuccess} onClick={() => handleNightAction(witchTarget, 'WITCH_SAVE')}>
+              💊 Dùng Bình Cứu Ghế #{witchTarget}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 6. Trò chuyện Sói & Chat Hồn Ma */}
+      <div style={styles.chatSection}>
+        {/* Chat riêng Sói */}
+        {myPlayer?.role === 'WOLF' && (
+          <div style={styles.chatBox}>
+            <h4>🐺 Trò Chuyện Phe Sói</h4>
+            <div style={styles.chatLogs}>
+              {wolfLogs.map((m, i) => (
+                <div key={i}><b>{m.sender}:</b> {m.message}</div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '5px' }}>
+              <input style={styles.inputSmall} value={wolfChatMsg} onChange={e => setWolfChatMsg(e.target.value)} placeholder="Nhắn cho Sói..." />
+              <button style={styles.btnPrimarySmall} onClick={handleSendWolfChat}>Gửi</button>
+            </div>
+          </div>
+        )}
+
+        {/* Chat Hồn Ma */}
+        {!myPlayer?.isAlive && (
+          <div style={styles.chatBox}>
+            <h4>👻 Trò Chuyện Hồn Ma</h4>
+            <div style={styles.chatLogs}>
+              {ghostLogs.map((m, i) => (
+                <div key={i}><b>{m.sender}:</b> {m.message}</div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '5px' }}>
+              <input style={styles.inputSmall} value={ghostChatMsg} onChange={e => setGhostChatMsg(e.target.value)} placeholder="Nhắn cho ma..." />
+              <button style={styles.btnPrimarySmall} onClick={handleSendGhostChat}>Gửi</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* --- Modal Popups --- */}
+      {/* Modal 1: Cài đặt phòng (Host) */}
+      {showSettingsModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalBody}>
+            <h3>⚙️ Cài Đặt Luật Chơi & Vai Trò</h3>
+            
+            <div style={styles.formRow}>
+              <label>⏱️ T.Gian Ban Ngày (giây):</label>
+              <input type="number" value={tempSettings.dayDuration} onChange={e => setTempSettings({ ...tempSettings, dayDuration: parseInt(e.target.value) })} />
+            </div>
+            <div style={styles.formRow}>
+              <label>⏱️ T.Gian Ban Đêm (giây):</label>
+              <input type="number" value={tempSettings.nightDuration} onChange={e => setTempSettings({ ...tempSettings, nightDuration: parseInt(e.target.value) })} />
+            </div>
+
+            <hr />
+            <h4>Số lượng Vai Trò:</h4>
+            <div style={styles.formRow}><label>🐺 Số Sói:</label><input type="number" value={tempSettings.wolfCount} onChange={e => setTempSettings({ ...tempSettings, wolfCount: parseInt(e.target.value) })} /></div>
+            <div style={styles.formRow}><label>👁️ Tiên Tri:</label><input type="number" value={tempSettings.seerCount} onChange={e => setTempSettings({ ...tempSettings, seerCount: parseInt(e.target.value) })} /></div>
+            <div style={styles.formRow}><label>🛡️ Bảo Vệ:</label><input type="number" value={tempSettings.guardCount} onChange={e => setTempSettings({ ...tempSettings, guardCount: parseInt(e.target.value) })} /></div>
+            <div style={styles.formRow}><label>🧪 Phù Thủy:</label><input type="number" value={tempSettings.witchCount} onChange={e => setTempSettings({ ...tempSettings, witchCount: parseInt(e.target.value) })} /></div>
+
+            <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+              <button style={styles.btnSuccess} onClick={handleSaveSettings}>Lưu Cấu Hình</button>
+              <button style={styles.btnDanger} onClick={() => setShowSettingsModal(false)}>Hủy</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Kết quả soi của Tiên Tri */}
+      {seerResultModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalBody}>
+            <h3>👁️ Kết Quả Soi Bài</h3>
+            <p>Ghế <b>#{seerResultModal.seat}</b> ({seerResultModal.name}) thuộc phe:</p>
+            <h2 style={{ color: seerResultModal.isWolf ? 'red' : 'green' }}>
+              {seerResultModal.isWolf ? '🐺 PHE SÓI' : '🧑 PHE DÂN LÀNG'}
+            </h2>
+            <button style={styles.btnPrimary} onClick={() => setSeerResultModal(null)}>Đã Đọc</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Inline CSS Stylesheet
+const styles = {
+  loginContainer: { width: '350px', margin: '100px auto', padding: '20px', background: '#1e1e2e', color: '#fff', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '15px' },
+  appContainer: { background: '#0f172a', minHeight: '100vh', color: '#f8fafc', padding: '15px', fontFamily: 'sans-serif' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '15px', borderRadius: '8px' },
+  notificationBar: { background: '#3b82f6', padding: '10px', marginTop: '10px', borderRadius: '6px', textAlign: 'center', fontWeight: 'bold' },
+  hostPanel: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#334155', padding: '10px 15px', marginTop: '10px', borderRadius: '6px' },
+  roleBar: { background: '#581c87', padding: '12px', marginTop: '10px', borderRadius: '6px', textAlign: 'center' },
+  seatsGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginTop: '15px' },
+  seatCard: { background: '#1e293b', borderRadius: '8px', padding: '10px', minHeight: '130px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' },
+  seatHeader: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#94a3b8' },
+  hostBadge: { background: '#eab308', color: '#000', padding: '2px 5px', borderRadius: '4px', fontSize: '10px' },
+  seatBody: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  camBox: { height: '50px', background: '#090d16', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px' },
+  playerInfo: { fontSize: '12px' },
+  emptySeat: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#64748b' },
+  nightActions: { display: 'flex', gap: '4px', marginTop: '5px' },
+  specialPanel: { background: '#831843', padding: '10px', marginTop: '10px', borderRadius: '6px', display: 'flex', gap: '10px', alignItems: 'center' },
+  chatSection: { display: 'flex', gap: '15px', marginTop: '15px' },
+  chatBox: { flex: 1, background: '#1e293b', padding: '10px', borderRadius: '8px' },
+  chatLogs: { height: '100px', overflowY: 'auto', background: '#0f172a', padding: '8px', borderRadius: '4px', marginBottom: '8px', fontSize: '12px' },
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modalBody: { background: '#1e293b', padding: '20px', borderRadius: '8px', minWidth: '320px', color: '#fff' },
+  formRow: { display: 'flex', justifyContent: 'space-between', margin: '8px 0', alignItems: 'center' },
+  input: { padding: '8px', borderRadius: '4px', border: 'none' },
+  inputSmall: { flex: 1, padding: '6px', borderRadius: '4px', border: 'none' },
+  actionGroup: { display: 'flex', gap: '8px' },
+  btnPrimary: { background: '#6366f1', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnPrimarySmall: { background: '#6366f1', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' },
+  btnSecondary: { background: '#64748b', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnSuccess: { background: '#22c55e', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnDanger: { background: '#ef4444', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnDangerSmall: { background: '#ef4444', color: '#fff', border: 'none', padding: '4px 6px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer' },
+  btnWarning: { background: '#f59e0b', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnWarningSmall: { background: '#f59e0b', color: '#fff', border: 'none', padding: '4px 6px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer' },
+  btnInfo: { background: '#06b6d4', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' },
+  btnInfoSmall: { background: '#06b6d4', color: '#fff', border: 'none', padding: '4px 6px', borderRadius: '3px', fontSize: '10px', cursor: 'pointer' },
+  btnVote: { background: '#8b5cf6', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', marginTop: '4px', cursor: 'pointer' }
+};
