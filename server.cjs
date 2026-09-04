@@ -25,11 +25,10 @@ process.on('unhandledRejection', (reason) => console.error('[UNHANDLED REJECTION
 const APP_ID = process.env.AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475";
 const APP_CERTIFICATE = process.env.APP_CERTIFICATE || "74fafa51c6714624bd251133041297d6";
 
-// API Cấp Token Agora (Đã sửa lỗi UID để khớp với Socket.id / UserID)
+// API Cấp Token Agora (Đã sửa hàm tương thích với phiên bản agora-access-token)
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
-  // Nhận uid từ client gửi lên (thường là socket.id hoặc userId)
-  const uid = req.query.uid || 0; 
+  const rawUid = req.query.uid;
 
   if (!channelName) return res.status(400).json({ error: 'channelName is required' });
 
@@ -40,29 +39,24 @@ app.get('/api/agora-token', (req, res) => {
 
   try {
     let token;
-    // Nếu UID gửi lên là Dạng Chuỗi (Ví dụ socket.id dạng "abc_123")
-    if (typeof uid === 'string' && isNaN(Number(uid))) {
-      token = RtcTokenBuilder.buildTokenWithUserAccount(
-        APP_ID, 
-        APP_CERTIFICATE, 
-        channelName, 
-        uid, 
-        role, 
-        privilegeExpiredTs
-      );
-    } else {
-      // Nếu UID là Số hoặc mặc định
-      token = RtcTokenBuilder.buildTokenWithUid(
-        APP_ID, 
-        APP_CERTIFICATE, 
-        channelName, 
-        Number(uid) || 0, 
-        role, 
-        privilegeExpiredTs
-      );
+    
+    // Nếu client gửi uid dạng số hợp lệ
+    if (rawUid !== undefined && rawUid !== null && !isNaN(Number(rawUid))) {
+      const uid = Number(rawUid);
+      token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, uid, role, privilegeExpiredTs);
+      return res.json({ token, uid });
+    } 
+    
+    // Nếu client gửi uid dạng chuỗi (String Account, ví dụ: socket.id)
+    if (rawUid && typeof rawUid === 'string') {
+      token = RtcTokenBuilder.buildTokenWithAccount(APP_ID, APP_CERTIFICATE, channelName, rawUid, role, privilegeExpiredTs);
+      return res.json({ token, uid: rawUid });
     }
 
-    return res.json({ token, uid });
+    // Mặc định nếu không truyền uid
+    token = RtcTokenBuilder.buildTokenWithUid(APP_ID, APP_CERTIFICATE, channelName, 0, role, privilegeExpiredTs);
+    return res.json({ token, uid: 0 });
+
   } catch (err) {
     console.error("Lỗi tạo Agora Token:", err);
     return res.status(500).json({ error: "Failed to generate token" });
