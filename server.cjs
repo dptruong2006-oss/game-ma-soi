@@ -18,7 +18,7 @@ const io = new Server(server, {
 
 // --- CAU HINH AGORA RTC ---
 const AGORA_APP_ID = process.env.AGORA_APP_ID || "f8b9cc77ff234823b6e4685127ebf475";
-const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || ""; // Đền Certificate nếu bật trong Agora Console
+const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || "";
 
 app.get('/api/agora-token', (req, res) => {
   const channelName = req.query.channelName;
@@ -50,7 +50,6 @@ app.get('/api/agora-token', (req, res) => {
 // --- LOGIC PHONG GAME & SOCKET.IO ---
 const rooms = {};
 
-// Hàm hỗ trợ trộn bài
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -59,7 +58,6 @@ function shuffleArray(array) {
   return array;
 }
 
-// Bắt đầu đếm ngược Phase
 function startTimer(roomId) {
   const room = rooms[roomId];
   if (!room) return;
@@ -80,23 +78,22 @@ io.on('connection', (socket) => {
   console.log('Nguoi choi ket noi:', socket.id);
 
   // 1. Tham gia phòng
-  socket.on('join_room', ({ roomId, userId, name, seat }) => {
+  socket.on('join_room', ({ roomId, name, seat, isHost }) => {
     socket.join(roomId);
 
     if (!rooms[roomId]) {
       rooms[roomId] = {
         roomId,
-        phase: 'WAITING', // WAITING, DAY, NIGHT
+        phase: 'LOBBY',
         timeLeft: 0,
         players: {},
         votes: {},
         nightActions: {},
         settings: {
-          wolfCount: 2,
-          guardCount: 1,
-          seerCount: 1,
-          witchCount: 1,
-          villagerCount: 2,
+          wolves: 2,
+          guards: 1,
+          seers: 1,
+          witches: 1,
           dayDuration: 120,
           nightDuration: 60
         }
@@ -104,16 +101,15 @@ io.on('connection', (socket) => {
     }
 
     const room = rooms[roomId];
-    const isFirstPlayer = Object.keys(room.players).length === 0;
 
-    room.players[userId] = {
-      userId,
+    room.players[socket.id] = {
+      id: socket.id,
       socketId: socket.id,
       name,
       seat: parseInt(seat),
-      isHost: isFirstPlayer || room.players[userId]?.isHost || false,
+      isHost: isHost || false,
       isAlive: true,
-      role: room.players[userId]?.role || null,
+      role: null,
       canSpeak: true,
       canCam: true,
       hasUsedHeal: false,
@@ -121,36 +117,49 @@ io.on('connection', (socket) => {
     };
 
     socket.roomId = roomId;
-    socket.userId = userId;
 
     io.to(roomId).emit('room_state_update', room);
     io.to(roomId).emit('notification', { message: `${name} đã vào ghế #${seat}` });
   });
 
-  // 2. Cập nhật cấu hình phòng (Host Only)
-  socket.on('update_settings', ({ roomId, settings }) => {
-    const room = rooms[roomId];
-    if (room && room.players[socket.userId]?.isHost) {
-      room.settings = { ...room.settings, ...settings };
+  // 1b. Khôi phục session khi F5
+  socket.on('rejoin_room', ({ roomId, name, seat, isHost }) => {
+    socket.join(roomId);
+    if (rooms[roomId]) {
+      const room = rooms[roomId];
+      room.players[socket.id] = {
+        id: socket.id,
+        socketId: socket.id,
+        name,
+        seat: parseInt(seat),
+        isHost: isHost || false,
+        isAlive: true,
+        role: room.players[socket.id]?.role || null,
+        canSpeak: true,
+        canCam: true
+      };
+      socket.roomId = roomId;
       io.to(roomId).emit('room_state_update', room);
-      io.to(roomId).emit('notification', { message: 'Chủ phòng đã cập nhật cài đặt ván đấu.' });
     }
   });
 
-  // 3. Bắt đầu ván đấu & Chia vai trò
-  socket.on('start_game', ({ roomId }) => {
+  // 2. Bắt đầu ván đấu & Đồng bộ roleSetup từ Host
+  socket.on('start_game', ({ roomId, roleSetup }) => {
     const room = rooms[roomId];
-    if (!room || !room.players[socket.userId]?.isHost) return;
+    if (!room || !room.players[socket.id]?.isHost) return;
 
-    const playerList = Object.values(room.players);
-    const { wolfCount, guardCount, seerCount, witchCount } = room.settings;
+    if (roleSetup) {
+      room.settings = { ...room.settings, ...roleSetup };
+    }
 
-    // Tạo danh sách role theo cài đặt
+    const playerList = Object.values(room.players).filter(p => !p.isHost);
+    const { wolves = 2, guards = 1, seers = 1, witches = 1 } = room.settings;
+
     let roles = [];
-    for (let i = 0; i < wolfCount; i++) roles.push('WOLF');
-    for (let i = 0; i < guardCount; i++) roles.push('GUARD');
-    for (let i = 0; i < seerCount; i++) roles.push('SEER');
-    for (let i = 0; i < witchCount; i++) roles.push('WITCH');
+    for (let i = 0; i < wolves; i++) roles.push('WOLF');
+    for (let i = 0; i < guards; i++) roles.push('GUARD');
+    for (let i = 0; i < seers; i++) roles.push('SEER');
+    for (let i = 0; i < witches; i++) roles.push('WITCH');
 
     while (roles.length < playerList.length) {
       roles.push('VILLAGER');
@@ -166,7 +175,7 @@ io.on('connection', (socket) => {
     });
 
     room.phase = 'NIGHT';
-    room.timeLeft = room.settings.nightDuration;
+    room.timeLeft = room.settings.nightDuration || 60;
     room.votes = {};
     room.nightActions = {};
 
@@ -175,13 +184,13 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('notification', { message: 'Ván đấu bắt đầu! Màn đêm buông xuống...' });
   });
 
-  // 4. Chuyển đổi trạng thái Ngày / Đêm
+  // 3. Chuyển đổi trạng thái Ngày / Đêm
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
-    if (!room || !room.players[socket.userId]?.isHost) return;
+    if (!room || !room.players[socket.id]?.isHost) return;
 
     room.phase = phase;
-    room.timeLeft = phase === 'DAY' ? room.settings.dayDuration : room.settings.nightDuration;
+    room.timeLeft = phase === 'DAY' ? (room.settings.dayDuration || 120) : (room.settings.nightDuration || 60);
     
     if (phase === 'DAY') room.nightActions = {};
     if (phase === 'NIGHT') room.votes = {};
@@ -191,47 +200,43 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('notification', { message: `Trạng thái chuyển sang: ${phase === 'DAY' ? 'BAN NGÀY ☀️' : 'BAN ĐÊM 🌙'}` });
   });
 
-  // 5. Bỏ phiếu Ban Ngày (Vote)
+  // 4. Bỏ phiếu Ban Ngày (Vote)
   socket.on('cast_vote', ({ roomId, targetSeat }) => {
     const room = rooms[roomId];
     if (room && room.phase === 'DAY') {
-      room.votes[socket.userId] = targetSeat;
+      room.votes[socket.id] = targetSeat;
       io.to(roomId).emit('room_state_update', room);
     }
   });
 
   socket.on('clear_votes', ({ roomId }) => {
     const room = rooms[roomId];
-    if (room && room.players[socket.userId]?.isHost) {
+    if (room && room.players[socket.id]?.isHost) {
       room.votes = {};
       io.to(roomId).emit('room_state_update', room);
       io.to(roomId).emit('notification', { message: 'Đã xóa toàn bộ phiếu vote.' });
     }
   });
 
-  // 6. Hành động Ban Đêm (Sói cắn, Tiên tri soi, Bảo vệ, Phù thủy)
+  // 5. Hành động Ban Đêm
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
-    if (!room || room.phase !== 'NIGHT') return;
+    if (!room) return;
 
-    const actor = room.players[socket.userId];
-    if (!actor || !actor.isAlive) return;
+    const actor = room.players[socket.id];
+    const isHostActor = actor?.isHost;
 
-    if (actionType === 'WOLF' && actor.role === 'WOLF') {
+    if (!isHostActor && (!actor || !actor.isAlive)) return;
+
+    if (actionType === 'WOLF' && (isHostActor || actor.role === 'WOLF')) {
       room.nightActions['WOLF_TARGET'] = targetSeat;
-      // Thông báo cho Phù thủy biết mục tiêu bị cắn
-      Object.values(room.players).forEach(p => {
-        if (p.role === 'WITCH' && p.isAlive) {
-          io.to(p.socketId).emit('witch_target_info', { targetSeat });
-        }
-      });
     }
 
-    if (actionType === 'GUARD' && actor.role === 'GUARD') {
+    if (actionType === 'GUARD' && (isHostActor || actor.role === 'GUARD')) {
       room.nightActions['GUARD_TARGET'] = targetSeat;
     }
 
-    if (actionType === 'SEER_CHECK' && actor.role === 'SEER') {
+    if (actionType === 'SEER_CHECK' && (isHostActor || actor.role === 'SEER')) {
       const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
       if (targetPlayer) {
         socket.emit('seer_result', {
@@ -242,39 +247,41 @@ io.on('connection', (socket) => {
       }
     }
 
-    if (actionType === 'WITCH_SAVE' && actor.role === 'WITCH' && !actor.hasUsedHeal) {
-      room.nightActions['WITCH_SAVE'] = true;
-      actor.hasUsedHeal = true;
-    }
-
-    if (actionType === 'WITCH_POISON' && actor.role === 'WITCH' && !actor.hasUsedPoison) {
+    if (actionType === 'WITCH_POISON' && (isHostActor || actor.role === 'WITCH')) {
       room.nightActions['WITCH_POISON_TARGET'] = targetSeat;
-      actor.hasUsedPoison = true;
     }
 
     io.to(roomId).emit('room_state_update', room);
   });
 
-  // 7. Kênh Chat riêng (Phe Sói & Hồn Ma)
-  socket.on('send_wolf_chat', ({ roomId, message }) => {
+  // 6. Kích đuổi & Đổi trạng thái Sống/Chết bởi Host
+  socket.on('host_kick_player', ({ roomId, targetSocketId }) => {
     const room = rooms[roomId];
-    const player = room?.players?.[socket.userId];
-    if (player && player.role === 'WOLF') {
-      Object.values(room.players).forEach(p => {
-        if (p.role === 'WOLF') {
-          io.to(p.socketId).emit('wolf_message_receive', { sender: player.name, message });
-        }
-      });
+    if (room && room.players[socket.id]?.isHost) {
+      io.to(targetSocketId).emit('kicked_from_room');
+      delete room.players[targetSocketId];
+      io.to(roomId).emit('room_state_update', room);
     }
   });
 
-  socket.on('send_ghost_chat', ({ roomId, message }) => {
+  socket.on('host_toggle_alive', ({ roomId, targetSeat }) => {
     const room = rooms[roomId];
-    const player = room?.players?.[socket.userId];
-    if (player && !player.isAlive) {
+    if (room && room.players[socket.id]?.isHost) {
+      const targetPlayer = Object.values(room.players).find(p => p.seat === targetSeat);
+      if (targetPlayer) {
+        targetPlayer.isAlive = !targetPlayer.isAlive;
+        io.to(roomId).emit('room_state_update', room);
+      }
+    }
+  });
+
+  // 7. Kênh Chat Phe Sói
+  socket.on('send_wolf_chat', ({ roomId, message, sender }) => {
+    const room = rooms[roomId];
+    if (room) {
       Object.values(room.players).forEach(p => {
-        if (!p.isAlive) {
-          io.to(p.socketId).emit('ghost_message_receive', { sender: player.name, message });
+        if (p.role === 'WOLF' || p.isHost) {
+          io.to(p.socketId).emit('wolf_message_receive', { sender, message });
         }
       });
     }
@@ -282,9 +289,9 @@ io.on('connection', (socket) => {
 
   // 8. Ngắt kết nối
   socket.on('disconnect', () => {
-    const { roomId, userId } = socket;
+    const { roomId } = socket;
     if (roomId && rooms[roomId]) {
-      delete rooms[roomId].players[userId];
+      delete rooms[roomId].players[socket.id];
       if (Object.keys(rooms[roomId].players).length === 0) {
         if (rooms[roomId].timerInterval) clearInterval(rooms[roomId].timerInterval);
         delete rooms[roomId];
@@ -295,7 +302,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Port mặc định cho Render
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log(`Server dang chay tai port ${PORT}`);

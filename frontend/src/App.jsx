@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react';
 import io from 'socket.io-client';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
@@ -261,6 +261,7 @@ export default function App() {
 
   const laughAudioRef = useRef(null);
   const windAudioRef = useRef(null);
+  const chatScrollRef = useRef(null);
   const phaseRef = useRef(roomState.phase);
 
   useEffect(() => {
@@ -329,7 +330,7 @@ export default function App() {
   const isAlive = myPlayerInfo?.isAlive !== false;
 
   // Tính số lượng phiếu bầu (Vote Count) trên từng ghế
-  const voteCounts = React.useMemo(() => {
+  const voteCounts = useMemo(() => {
     const counts = {};
     if (roomState.votes) {
       Object.values(roomState.votes).forEach(targetSeat => {
@@ -338,6 +339,13 @@ export default function App() {
     }
     return counts;
   }, [roomState.votes]);
+
+  // Cuộn tin nhắn Sói xuống đáy khi có chat mới
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [wolfChatList]);
 
   // Đăng ký sự kiện Socket.io
   useEffect(() => {
@@ -799,7 +807,7 @@ export default function App() {
         {isNight && myPlayerInfo?.role === 'WOLF' && isAlive && (
           <div style={styles.chatBoxContainer}>
             <h4 style={{ margin: '0 0 8px 0', color: '#ef4444' }}>💬 Kênh Trò Chuyện Phe Sói</h4>
-            <div style={styles.chatMessagesArea}>
+            <div ref={chatScrollRef} style={styles.chatMessagesArea}>
               {wolfChatList.map((msg, idx) => (
                 <div key={idx} style={{ marginBottom: '4px' }}>
                   <strong style={{ color: '#f87171' }}>{msg.sender}: </strong>
@@ -824,7 +832,7 @@ export default function App() {
   );
 }
 
-// Bảng CSS Inline
+// Bảng CSS Inline đầy đủ
 const styles = {
   videoPlayerContainer: {
     width: '100%',
@@ -851,337 +859,355 @@ const styles = {
     color: '#fff',
     minHeight: '100vh',
     padding: '24px',
-    fontFamily: 'sans-serif',
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center'
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   lobbyTitle: {
-    color: '#c084fc',
-    marginBottom: '16px',
+    fontSize: '24px',
+    fontWeight: 'bold',
+    color: '#a855f7',
+    marginBottom: '20px',
     textAlign: 'center'
   },
   lobbyForm: {
     backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
     padding: '24px',
-    borderRadius: '16px',
+    borderRadius: '12px',
+    border: '1px solid #334155',
     width: '100%',
-    maxWidth: '600px',
+    maxWidth: '650px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '18px'
+    gap: '16px'
   },
   label: {
+    fontSize: '13px',
     color: '#94a3b8',
-    fontSize: '13px'
+    fontWeight: 'bold',
+    marginBottom: '4px',
+    display: 'block'
   },
   input: {
     width: '100%',
-    padding: '10px',
-    borderRadius: '8px',
-    border: '1px solid #334155',
-    background: '#020617',
+    padding: '8px 12px',
+    backgroundColor: '#1e293b',
+    border: '1px solid #475569',
+    borderRadius: '6px',
     color: '#fff',
-    boxSizing: 'border-box'
+    fontSize: '14px',
+    boxSizing: 'border-box',
+    outline: 'none'
   },
   smallInput: {
     width: '45px',
-    padding: '2px 5px',
+    padding: '2px 4px',
+    backgroundColor: '#1e293b',
+    border: '1px solid #475569',
     borderRadius: '4px',
-    border: '1px solid #334155',
-    background: '#020617',
-    color: '#fff'
+    color: '#fff',
+    fontSize: '12px',
+    marginLeft: '4px'
   },
   copyBtn: {
-    padding: '10px',
-    borderRadius: '8px',
-    background: '#1e3a8a',
-    color: '#93c5fd',
-    fontWeight: 'bold',
+    padding: '8px 12px',
+    backgroundColor: '#334155',
+    color: '#38bdf8',
+    border: 'none',
+    borderRadius: '6px',
     cursor: 'pointer',
-    border: 'none'
+    fontSize: '12px',
+    fontWeight: 'bold'
   },
   hostBox: {
-    background: '#1e293b',
-    padding: '12px 16px',
-    borderRadius: '8px',
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    justify: 'space-between',
+    alignItems: 'center',
+    padding: '12px',
+    backgroundColor: '#1e293b',
+    borderRadius: '8px'
   },
   hostBtn: {
-    padding: '6px 16px',
-    borderRadius: '6px',
-    border: 'none',
+    padding: '6px 12px',
     color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
     fontWeight: 'bold'
   },
   seatGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, 1fr)',
+    gridTemplateColumns: 'repeat( auto-fill, minmax(110px, 1fr) )',
     gap: '8px'
   },
   seatBtn: {
     padding: '10px 4px',
-    borderRadius: '8px',
+    borderRadius: '6px',
+    fontSize: '12px',
     fontWeight: 'bold',
-    fontSize: '12px'
+    textAlign: 'center'
   },
   submitBtn: {
+    width: '100%',
     padding: '12px',
-    background: '#10b981',
+    backgroundColor: '#9333ea',
     color: '#fff',
-    fontWeight: 'bold',
-    fontSize: '15px',
     border: 'none',
     borderRadius: '8px',
-    cursor: 'pointer'
+    fontSize: '15px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    marginTop: '10px'
   },
   gameContainer: {
     color: '#fff',
     minHeight: '100vh',
     padding: '16px',
-    fontFamily: 'sans-serif',
-    transition: 'background-color 0.8s ease',
+    boxSizing: 'border-box',
     position: 'relative'
   },
   disconnectBanner: {
     position: 'fixed',
     top: 0,
     left: 0,
-    width: '100%',
+    right: 0,
     backgroundColor: '#dc2626',
     color: '#fff',
     textAlign: 'center',
-    padding: '8px',
+    padding: '6px',
+    fontSize: '13px',
     fontWeight: 'bold',
-    zIndex: 9999,
-    fontSize: '13px'
+    zIndex: 1000
   },
   nightEffectsOverlay: {
-    position: 'absolute',
+    position: 'fixed',
     inset: 0,
     pointerEvents: 'none',
-    overflow: 'hidden',
     zIndex: 10
   },
   header: {
     display: 'flex',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center',
+    padding: '12px 16px',
+    borderRadius: '10px',
+    border: '1px solid',
     marginBottom: '16px',
-    padding: '14px',
-    borderRadius: '12px',
-    border: '1px solid #334155',
     flexWrap: 'wrap',
     gap: '12px'
   },
   leaveBtn: {
-    padding: '6px 12px',
-    borderRadius: '8px',
-    border: 'none',
-    background: '#475569',
+    padding: '6px 10px',
+    backgroundColor: '#475569',
     color: '#fff',
-    fontWeight: 'bold',
-    cursor: 'pointer'
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '12px'
   },
   timerBadge: {
-    background: '#334155',
+    backgroundColor: '#3b82f6',
+    color: '#fff',
     padding: '2px 8px',
-    borderRadius: '4px',
-    color: '#38bdf8',
-    fontSize: '13px'
+    borderRadius: '12px',
+    fontSize: '12px'
   },
   copyBtnHeader: {
-    padding: '8px 12px',
-    borderRadius: '8px',
-    background: '#1e3a8a',
-    color: '#93c5fd',
-    fontWeight: 'bold',
-    border: 'none',
-    cursor: 'pointer'
-  },
-  mediaToggleBtn: {
-    padding: '8px 12px',
-    borderRadius: '8px',
+    padding: '6px 10px',
+    backgroundColor: '#0284c7',
     color: '#fff',
     border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '12px'
+  },
+  mediaToggleBtn: {
+    padding: '6px 12px',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '12px',
     fontWeight: 'bold'
   },
   hostControlPanel: {
-    background: '#1e293b',
+    backgroundColor: '#1e293b',
+    border: '1px solid #d97706',
     padding: '14px',
-    borderRadius: '12px',
-    marginBottom: '16px',
-    border: '1px solid #d97706'
+    borderRadius: '10px',
+    marginBottom: '16px'
   },
   hostActionBtn: {
     padding: '6px 12px',
-    background: '#312e81',
-    color: '#a5b4fc',
+    backgroundColor: '#2563eb',
+    color: '#fff',
     border: 'none',
     borderRadius: '6px',
+    fontSize: '12px',
     fontWeight: 'bold',
     cursor: 'pointer'
   },
-  hostMicroBtn: {
-    padding: '2px 6px',
-    background: '#dc2626',
-    color: '#fff',
-    fontSize: '10px',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer'
-  },
   roleBanner: {
-    background: '#3b0764',
-    border: '1px solid #a855f7',
+    backgroundColor: '#312e81',
+    border: '1px solid #6366f1',
     padding: '10px 16px',
-    borderRadius: '10px',
-    marginBottom: '14px',
+    borderRadius: '8px',
+    marginBottom: '16px',
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '14px'
   },
   deadWarningBanner: {
-    background: '#450a0a',
-    border: '1px solid #ef4444',
+    backgroundColor: '#450a0a',
+    border: '1px solid #991b1b',
     color: '#fca5a5',
-    padding: '8px 16px',
+    padding: '10px 16px',
     borderRadius: '8px',
-    marginBottom: '14px',
+    marginBottom: '16px',
     fontSize: '13px',
     textAlign: 'center'
   },
   seatsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
-    gap: '12px'
-  },
-  emptySeatCard: {
-    borderRadius: '12px',
-    border: '1px dashed #334155',
-    padding: '12px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '150px',
-    opacity: 0.3
+    gridTemplateColumns: 'repeat( auto-fill, minmax(140px, 1fr) )',
+    gap: '12px',
+    marginBottom: '20px'
   },
   seatCard: {
-    position: 'relative',
-    borderRadius: '12px',
+    borderRadius: '8px',
     padding: '8px',
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center'
+    alignItems: 'center',
+    boxSizing: 'border-box',
+    minHeight: '170px'
+  },
+  emptySeatCard: {
+    borderRadius: '8px',
+    border: '1px dashed #334155',
+    backgroundColor: '#0f172a',
+    padding: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '170px'
   },
   seatBadge: {
-    background: '#9333ea',
-    color: '#fff',
     fontSize: '10px',
-    padding: '2px 6px',
-    borderRadius: '4px'
+    color: '#94a3b8',
+    fontWeight: 'bold'
   },
   voteBadge: {
-    background: '#2563eb',
-    color: '#fff',
     fontSize: '10px',
-    padding: '2px 6px',
+    backgroundColor: '#ca8a04',
+    color: '#fff',
+    padding: '1px 4px',
     borderRadius: '4px',
     fontWeight: 'bold'
   },
   hostBadge: {
-    background: '#d97706',
-    color: '#fff',
-    fontSize: '9px',
-    padding: '2px 6px',
-    borderRadius: '4px'
+    fontSize: '10px',
+    color: '#f59e0b',
+    fontWeight: 'bold'
   },
   videoBox: {
     width: '100%',
-    height: '110px',
-    background: '#000',
-    borderRadius: '8px',
+    height: '90px',
+    backgroundColor: '#020617',
+    borderRadius: '6px',
     overflow: 'hidden',
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative'
+    justifyContent: 'center'
   },
   deadOverlay: {
     position: 'absolute',
     inset: 0,
-    background: 'rgba(0, 0, 0, 0.8)',
-    color: '#ef4444',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    color: '#ef4444',
     fontWeight: 'bold',
-    fontSize: '13px',
+    fontSize: '12px',
     zIndex: 10
   },
   actionVoteBtn: {
-    padding: '3px 8px',
-    borderRadius: '4px',
-    border: 'none',
-    background: '#2563eb',
+    padding: '2px 6px',
+    backgroundColor: '#ca8a04',
     color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
     fontSize: '11px',
-    fontWeight: 'bold',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    fontWeight: 'bold'
   },
   actionIconBtn: {
     padding: '3px 6px',
-    borderRadius: '4px',
-    border: 'none',
-    background: '#16a34a',
+    backgroundColor: '#2563eb',
     color: '#fff',
-    fontSize: '10px',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '11px',
     cursor: 'pointer'
   },
   roleActionBtn: {
-    padding: '3px 6px',
-    borderRadius: '4px',
-    border: 'none',
-    background: '#2563eb',
+    width: '100%',
+    padding: '4px',
+    backgroundColor: '#2563eb',
     color: '#fff',
-    fontSize: '10px',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '11px',
+    cursor: 'pointer',
     fontWeight: 'bold',
+    marginTop: '2px'
+  },
+  hostMicroBtn: {
+    flex: 1,
+    padding: '2px 4px',
+    backgroundColor: '#475569',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '10px',
     cursor: 'pointer'
   },
   logContainer: {
-    marginTop: '16px',
-    background: '#020617',
+    backgroundColor: '#0f172a',
     border: '1px solid #1e293b',
-    borderRadius: '12px',
-    padding: '12px'
+    borderRadius: '8px',
+    padding: '12px',
+    marginBottom: '16px'
   },
   logBox: {
     maxHeight: '120px',
     overflowY: 'auto'
   },
   chatBoxContainer: {
-    marginTop: '16px',
-    background: '#18181b',
-    border: '1px solid #27272a',
-    borderRadius: '12px',
-    padding: '12px'
+    backgroundColor: '#18181b',
+    border: '1px solid #7f1d1d',
+    borderRadius: '8px',
+    padding: '12px',
+    marginTop: '16px'
   },
   chatMessagesArea: {
-    maxHeight: '100px',
+    maxHeight: '130px',
     overflowY: 'auto',
-    fontSize: '12px',
-    color: '#e4e4e7'
+    backgroundColor: '#090d16',
+    padding: '8px',
+    borderRadius: '6px',
+    fontSize: '13px'
   },
   sendChatBtn: {
     padding: '8px 16px',
-    borderRadius: '8px',
-    border: 'none',
-    background: '#dc2626',
+    backgroundColor: '#dc2626',
     color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '13px',
     fontWeight: 'bold',
     cursor: 'pointer'
   }

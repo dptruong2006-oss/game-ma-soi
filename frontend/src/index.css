@@ -40,21 +40,22 @@ body {
 }
 
 /* ==========================================
-   2. KEYFRAMES & ANIMATIONS
+   2. KEYFRAMES & GPU ANIMATIONS
    ========================================== */
 @keyframes shake {
-  0%, 100% { transform: translate(0, 0); }
-  20%, 60% { transform: translate(-4px, 4px); }
-  40%, 80% { transform: translate(4px, -4px); }
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20%, 60% { transform: translate3d(-4px, 4px, 0); }
+  40%, 80% { transform: translate3d(4px, -4px, 0); }
 }
 
 .card-shake {
   animation: shake 0.5s ease-in-out;
+  will-change: transform;
 }
 
 @keyframes fadeSlash {
-  0% { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(1.1); }
+  0% { opacity: 1; transform: scale(1) translateZ(0); }
+  100% { opacity: 0; transform: scale(1.1) translateZ(0); }
 }
 
 .slash-effect {
@@ -66,6 +67,7 @@ body {
   background: linear-gradient(135deg, transparent 45%, rgba(239, 68, 68, 0.85) 50%, transparent 55%);
   pointer-events: none;
   z-index: 999;
+  will-change: transform, opacity;
   animation: fadeSlash 0.8s forwards ease-out;
 }
 
@@ -81,16 +83,24 @@ body {
   background: rgba(255, 255, 255, 0.2);
   pointer-events: none;
   opacity: 0;
+  will-change: opacity;
   animation: lightning 5s infinite;
 }
 
 @keyframes pulseGlow {
   0%, 100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.4); }
-  50% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.8); }
+  50% { box-shadow: 0 0 18px rgba(168, 85, 247, 0.9); }
 }
 
 .me-card-glow {
+  will-change: box-shadow;
   animation: pulseGlow 2s infinite;
+}
+
+/* Hiệu ứng mờ/xám khi nhân vật bị loại */
+.seat-card-dead {
+  filter: grayscale(85%) opacity(0.55);
+  transition: filter 0.4s ease, opacity 0.4s ease;
 }
 
 /* ==========================================
@@ -99,6 +109,8 @@ body {
 button {
   transition: all 0.2s ease;
   outline: none;
+  touch-action: manipulation;
+  will-change: transform, filter;
 }
 
 button:hover:not(:disabled) {
@@ -107,7 +119,7 @@ button:hover:not(:disabled) {
 }
 
 button:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
   filter: brightness(0.95);
 }
 
@@ -127,7 +139,7 @@ input:focus {
 }
 
 /* ==========================================
-   4. RESPONSIVE BREAKPOINTS
+   4. RESPONSIVE BREAKPOINTS & ACCESSIBILITY
    ========================================== */
 @media (max-width: 768px) {
   body {
@@ -137,9 +149,31 @@ input:focus {
   header {
     flex-direction: column;
     align-items: stretch !important;
+    gap: 8px;
   }
 
   .seat-grid-mobile {
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important;
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .seat-grid-mobile {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Tắt chuyển động nặng nếu thiết bị bật Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .card-shake,
+  .slash-effect,
+  .lightning-effect,
+  .me-card-glow {
+    animation: none !important;
+  }
+
+  button, input, .seat-card-dead {
+    transition: none !important;
   }
 }
