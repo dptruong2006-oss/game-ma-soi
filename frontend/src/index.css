@@ -1,6 +1,18 @@
 @import "tailwindcss";
 
-/* === RESET / GLOBAL FIX CHO TRANG GAME === */
+/* === 1. BIẾN HỆ THỐNG (CSS VARIABLES FOR EASY THEMING) === */
+:root {
+  --color-bg-dark: #0f172a;
+  --color-text-main: #ffffff;
+  --color-blood-red: #ff1a1a;
+  --color-shield-blue: #3b82f6;
+  --color-potion-purple: #c084fc;
+  --color-plague-green: #22c55e;
+  --color-win-gold: #eab308;
+  --font-family-game: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* === 2. RESET & GLOBAL FIX FOR GAME UI === */
 *, ::before, ::after {
   box-sizing: border-box;
 }
@@ -10,20 +22,27 @@ html, body {
   padding: 0;
   width: 100%;
   height: 100%;
-  background-color: #0f172a;
-  color: #fff;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-main);
+  font-family: var(--font-family-game);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Chống highlight xanh & chống zoom đúp trên thiết bị di động */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
 }
 
-/* === AGORA VIDEO PLAYER CONTAINER FIX === */
+/* === 3. AGORA VIDEO PLAYER CONTAINER FIX === */
 .agora-video-player {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
+  position: relative;
+  background-color: rgba(0, 0, 0, 0.4);
 }
 
 .agora-video-player video {
@@ -32,10 +51,10 @@ html, body {
   object-fit: cover !important;
 }
 
-/* === HIỆU ỨNG CHÉM ANIME (ANIME SLASH) === */
+/* === 4. HIỆU ỨNG CHÉM ANIME (ANIME SLASH) === */
 @keyframes animeSlash {
   0% { 
-    transform: translate(-100%, 100%) rotate(-45deg); 
+    transform: translate3d(-100%, 100%, 0) rotate(-45deg); 
     opacity: 0; 
     width: 0%; 
   }
@@ -45,12 +64,12 @@ html, body {
   }
   75% { 
     opacity: 1; 
-    transform: translate(50%, -50%) rotate(-45deg); 
+    transform: translate3d(50%, -50%, 0) rotate(-45deg); 
     width: 120%; 
-    filter: drop-shadow(0 0 25px #ff1a1a); 
+    filter: drop-shadow(0 0 25px var(--color-blood-red)); 
   }
   100% { 
-    transform: translate(100%, -100%) rotate(-45deg); 
+    transform: translate3d(100%, -100%, 0) rotate(-45deg); 
     opacity: 0; 
     width: 0%; 
   }
@@ -62,22 +81,22 @@ html, body {
   left: -20%; 
   height: 6px;
   width: 140vw;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), #ff1a1a, transparent);
-  box-shadow: 0 0 35px #ff0000; 
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), var(--color-blood-red), transparent);
+  box-shadow: 0 0 35px var(--color-blood-red); 
   z-index: 9999; 
   pointer-events: none;
   animation: animeSlash 0.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
   will-change: transform, opacity;
 }
 
-/* === HIỆU ỨNG RUNG MÀN HÌNH (SCREEN SHAKE) === */
+/* === 5. HIỆU ỨNG RUNG MÀN HÌNH (SCREEN SHAKE) === */
 @keyframes screenShake {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  15% { transform: translate(-6px, 6px) rotate(-0.5deg); }
-  30% { transform: translate(6px, -5px) rotate(0.5deg); }
-  45% { transform: translate(-4px, -3px) rotate(-0.3deg); }
-  60% { transform: translate(4px, 4px) rotate(0.3deg); }
-  75% { transform: translate(-2px, -2px) rotate(0deg); }
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  15% { transform: translate3d(-6px, 6px, 0) rotate(-0.5deg); }
+  30% { transform: translate3d(6px, -5px, 0) rotate(0.5deg); }
+  45% { transform: translate3d(-4px, -3px, 0) rotate(-0.3deg); }
+  60% { transform: translate3d(4px, 4px, 0) rotate(0.3deg); }
+  75% { transform: translate3d(-2px, -2px, 0) rotate(0deg); }
 }
 
 .card-shake { 
@@ -85,18 +104,18 @@ html, body {
   will-change: transform;
 }
 
-/* === HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM === */
+/* === 6. HIỆU ỨNG HỒN MA BAY LƯỢN BAN ĐÊM === */
 @keyframes floatGhost {
   0% {
-    transform: translateY(0px) translateX(0px) rotate(0deg) scale(0.8);
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
     opacity: 0.15;
   }
   50% {
-    transform: translateY(-45px) translateX(25px) rotate(8deg) scale(1.15);
+    transform: translate3d(25px, -45px, 0) rotate(8deg) scale(1.15);
     opacity: 0.75;
   }
   100% {
-    transform: translateY(-90px) translateX(-25px) rotate(-8deg) scale(0.85);
+    transform: translate3d(-25px, -90px, 0) rotate(-8deg) scale(0.85);
     opacity: 0.15;
   }
 }
@@ -110,12 +129,12 @@ html, body {
   will-change: transform, opacity;
 }
 
-/* === HIỆU ỨNG BẦY HỒN MA RÙNG RỢN & SƯƠNG MÙ MÁU === */
+/* === 7. HIỆU ỨNG BẦY HỒN MA RÙNG RỢN & SƯƠNG MÙ MÁU === */
 @keyframes spookyDrift {
-  0% { transform: translateY(0px) translateX(0px) rotate(-5deg) scale(0.6); opacity: 0.05; }
-  35% { transform: translateY(-70px) translateX(45px) rotate(12deg) scale(1.25); opacity: 0.85; }
-  75% { transform: translateY(-140px) translateX(-35px) rotate(-8deg) scale(0.95); opacity: 0.45; }
-  100% { transform: translateY(-200px) translateX(25px) rotate(8deg) scale(0.5); opacity: 0; }
+  0% { transform: translate3d(0, 0, 0) rotate(-5deg) scale(0.6); opacity: 0.05; }
+  35% { transform: translate3d(45px, -70px, 0) rotate(12deg) scale(1.25); opacity: 0.85; }
+  75% { transform: translate3d(-35px, -140px, 0) rotate(-8deg) scale(0.95); opacity: 0.45; }
+  100% { transform: translate3d(25px, -200px, 0) rotate(8deg) scale(0.5); opacity: 0; }
 }
 
 .creepy-ghost {
@@ -142,7 +161,7 @@ html, body {
   will-change: opacity;
 }
 
-/* === HIỆU ỨNG SẤM SÉT CHỚP LÓE BAN ĐÊM === */
+/* === 8. HIỆU ỨNG SẤM SÉT CHỚP LÓE BAN ĐÊM === */
 @keyframes lightningFlash {
   0%, 88%, 93%, 97%, 100% { opacity: 0; background: transparent; }
   90% { opacity: 0.85; background: rgba(255, 255, 255, 0.9); }
@@ -160,7 +179,7 @@ html, body {
   will-change: opacity, background;
 }
 
-/* === HIỆU ỨNG KHIÊN BẢO VỆ (GUARD SHIELD) === */
+/* === 9. HIỆU ỨNG KHIÊN BẢO VỆ (GUARD SHIELD) === */
 @keyframes shieldPulse {
   0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.85); transform: scale(1); }
   70% { box-shadow: 0 0 0 18px rgba(59, 130, 246, 0); transform: scale(1.02); }
@@ -168,17 +187,17 @@ html, body {
 }
 
 .guard-shield-active {
-  border: 2px solid #3b82f6 !important;
+  border: 2px solid var(--color-shield-blue) !important;
   animation: shieldPulse 1.8s infinite ease-in-out;
   background: rgba(59, 130, 246, 0.22) !important;
   will-change: transform, box-shadow;
 }
 
-/* === HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION) === */
+/* === 10. HIỆU ỨNG BÌNH THUỐC PHÙ THỦY (WITCH POTION) === */
 @keyframes potionFlyAndSplash {
-  0% { transform: translateY(45px) scale(0.2); opacity: 0; }
-  50% { transform: translateY(-12px) scale(1.3); opacity: 1; filter: drop-shadow(0 0 30px #c084fc); }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
+  0% { transform: translate3d(0, 45px, 0) scale(0.2); opacity: 0; }
+  50% { transform: translate3d(0, -12px, 0) scale(1.3); opacity: 1; filter: drop-shadow(0 0 30px var(--color-potion-purple)); }
+  100% { transform: translate3d(0, 0, 0) scale(1); opacity: 1; }
 }
 
 .witch-potion-effect {
@@ -186,7 +205,7 @@ html, body {
   will-change: transform, opacity;
 }
 
-/* === HIỆU ỨNG VÙNG CHỌN MỤC TIÊU KỲ BÍ (TARGET GLOW) === */
+/* === 11. HIỆU ỨNG VÙNG CHỌN MỤC TIÊU KỲ BÍ (TARGET GLOW) === */
 @keyframes targetGlow {
   0%, 100% { border-color: rgba(239, 68, 68, 0.5); box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
   50% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 35px rgba(239, 68, 68, 0.95); }
@@ -197,20 +216,20 @@ html, body {
   will-change: border-color, box-shadow;
 }
 
-/* === HIỆU ỨNG NHÂN VẬT NGƯỜI BỆNH / NHIỄM ĐỘC (INFECTED) === */
+/* === 12. HIỆU ỨNG NHÂN VẬT NGƯỜI BỆNH / NHIỄM ĐỘC (INFECTED) === */
 @keyframes plaguePulse {
   0%, 100% { border-color: rgba(34, 197, 94, 0.5); box-shadow: 0 0 10px rgba(34, 197, 94, 0.3); }
   50% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 30px rgba(34, 197, 94, 0.9); }
 }
 
 .plague-infected-card {
-  border: 2px dashed #22c55e !important;
+  border: 2px dashed var(--color-plague-green) !important;
   animation: plaguePulse 1.8s infinite ease-in-out;
   background: rgba(34, 197, 94, 0.18) !important;
   will-change: border-color, box-shadow;
 }
 
-/* === HIỆU ỨNG CHIẾN THẮNG (WINNER BANNER) === */
+/* === 13. HIỆU ỨNG CHIẾN THẮNG (WINNER BANNER) === */
 @keyframes winGlow {
   0%, 100% { filter: drop-shadow(0 0 25px rgba(234, 179, 8, 0.65)); transform: scale(1); }
   50% { filter: drop-shadow(0 0 45px rgba(234, 179, 8, 1)); transform: scale(1.02); }
@@ -221,12 +240,17 @@ html, body {
   will-change: transform, filter;
 }
 
-/* === GLASSMORPHISM & SCROLLBAR === */
-.wolf-chat-container, .ghost-chat-container {
+/* === 14. GLASSMORPHISM & UI UTILITIES === */
+.wolf-chat-container, 
+.ghost-chat-container,
+.game-card-glass {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
