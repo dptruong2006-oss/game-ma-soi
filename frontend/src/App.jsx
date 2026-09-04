@@ -5,11 +5,11 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 const SOCKET_SERVER_URL = 'https://game-ma-soi.onrender.com';
 const AGORA_APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
 
-// Khởi tạo Socket và Agora Client duy nhất bên ngoài Render Loop
+// Khởi tạo Singleton Instances ngoài Render Loop
 const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
 const agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-// Global CSS animation và hiệu ứng
+// Global Styles & Animations
 const GlobalStyles = () => (
   <style>{`
     @keyframes shake {
@@ -37,7 +37,7 @@ const GlobalStyles = () => (
   `}</style>
 );
 
-// Component phát Video / Audio Agora
+// Component Phát Video/Audio Agora
 const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
   const containerRef = useRef(null);
 
@@ -86,7 +86,7 @@ const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
   );
 });
 
-// Component hiển thị thẻ từng ghế chơi
+// Component Thẻ Ghế Ngồi
 const SeatCard = memo(({ 
   seatNum, occupant, isMe, remoteUser, isNight, isDay, isHost, myRole, localTracks, isVideoOn, voteCount, socket 
 }) => {
@@ -100,7 +100,6 @@ const SeatCard = memo(({
 
   const isAlive = occupant.isAlive !== false;
 
-  // Quyền xem video stream
   const canSeeStream = () => {
     if (!isAlive) return false;
     if (occupant.id === socket.id || isHost) return true;
@@ -119,7 +118,6 @@ const SeatCard = memo(({
         background: isAlive ? '#0f172a' : '#18181b'
       }}
     >
-      {/* Header Ghế & Hiển thị Vote Count */}
       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '4px' }}>
         <span style={styles.seatBadge}>Ghế #{seatNum}</span>
         {voteCount > 0 && isDay && (
@@ -128,7 +126,6 @@ const SeatCard = memo(({
         {occupant.isHost && <span style={styles.hostBadge}>👑 Host</span>}
       </div>
 
-      {/* Frame Khung Video */}
       <div style={styles.videoBox}>
         {!isAlive && (
           <div style={styles.deadOverlay}>
@@ -159,14 +156,12 @@ const SeatCard = memo(({
         )}
       </div>
 
-      {/* Thông tin tên & Nút chức năng */}
       <div style={{ width: '100%', marginTop: '6px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90px' }}>
             {occupant.name} {isMe ? "(Bạn)" : ""}
           </span>
 
-          {/* Action Ban Ngày */}
           {isDay && isAlive && !isMe && (
             <button 
               onClick={() => socket.emit('cast_vote', { roomId: occupant.roomId, targetSeat: seatNum })} 
@@ -177,7 +172,6 @@ const SeatCard = memo(({
           )}
         </div>
 
-        {/* Action Ban Đêm */}
         {isNight && isAlive && (
           <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginTop: '4px' }}>
             {isHost && (
@@ -203,7 +197,6 @@ const SeatCard = memo(({
           </div>
         )}
 
-        {/* Thao tác bổ sung của Host */}
         {isHost && !isMe && (
           <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
             <button 
@@ -240,7 +233,6 @@ export default function App() {
   const [wolfChatList, setWolfChatList] = useState([]);
   const [publicLogs, setPublicLogs] = useState([]);
 
-  // Tùy chỉnh vai trò (Role Config - dành cho Host)
   const [roleSetup, setRoleSetup] = useState({ wolves: 2, seers: 1, guards: 1, witches: 1 });
 
   const [roomId, setRoomId] = useState(() => {
@@ -268,7 +260,7 @@ export default function App() {
     phaseRef.current = roomState.phase;
   }, [roomState.phase]);
 
-  // Tự động khôi phục Session nếu bấm F5
+  // Session recovery
   useEffect(() => {
     const savedSession = sessionStorage.getItem('ma_soi_session');
     if (savedSession) {
@@ -288,7 +280,6 @@ export default function App() {
     }
   }, []);
 
-  // Âm thanh giả lập qua Web Audio API
   const playSoundEffect = useCallback((phase) => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -329,7 +320,6 @@ export default function App() {
   const isDay = roomState.phase === 'DAY';
   const isAlive = myPlayerInfo?.isAlive !== false;
 
-  // Tính số lượng phiếu bầu (Vote Count) trên từng ghế
   const voteCounts = useMemo(() => {
     const counts = {};
     if (roomState.votes) {
@@ -340,14 +330,13 @@ export default function App() {
     return counts;
   }, [roomState.votes]);
 
-  // Cuộn tin nhắn Sói xuống đáy khi có chat mới
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [wolfChatList]);
 
-  // Đăng ký sự kiện Socket.io
+  // Event Listeners for Socket
   useEffect(() => {
     const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
@@ -413,7 +402,6 @@ export default function App() {
     };
   }, [playSoundEffect]);
 
-  // Phát nhạc nền Ban đêm
   useEffect(() => {
     if (isNight) {
       if (laughAudioRef.current) laughAudioRef.current.play().catch(() => {});
@@ -430,7 +418,6 @@ export default function App() {
     }
   }, [isNight]);
 
-  // Tự động vô hiệu hóa Micro/Camera khi Đã Chết
   useEffect(() => {
     if (localTracks.audioTrack) {
       const canSpeak = isAlive && (myPlayerInfo?.canSpeak !== false);
@@ -445,7 +432,7 @@ export default function App() {
     }
   }, [isAlive, myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
-  // Quản lý Kết nối Agora RTC Realtime Video
+  // Agora WebRTC logic
   useEffect(() => {
     if (!hasJoined || !socket.id) return;
     let isMounted = true;
@@ -556,7 +543,6 @@ export default function App() {
     setChatMessage('');
   };
 
-  // Màn hình chọn ghế & vào phòng
   if (!hasJoined) {
     return (
       <div style={styles.lobbyContainer}>
@@ -645,7 +631,6 @@ export default function App() {
     );
   }
 
-  // Màn hình chính trong Game
   return (
     <div 
       className={isShaking ? "card-shake" : ""}
@@ -672,7 +657,6 @@ export default function App() {
       )}
 
       <div style={{ position: 'relative', zIndex: 20 }}>
-        {/* Header Trạng Thái */}
         <header style={{
           ...styles.header,
           background: isNight ? '#020617' : '#1e293b',
@@ -718,12 +702,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* Bảng Điều Khiển Nâng Cao Cho Quản Trò */}
         {isHost && (
           <div style={styles.hostControlPanel}>
             <h3 style={{ color: '#f59e0b', margin: '0 0 10px 0' }}>👑 Bảng Điều Khiển Quản Trò (Host)</h3>
             
-            {/* Cấu hình vai trò trò chơi */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', background: '#0f172a', padding: '10px', borderRadius: '8px' }}>
               <span style={{ fontSize: '12px', color: '#cbd5e1' }}>Cấu hình bài:</span>
               <label style={{ fontSize: '12px' }}>🐺 Sói: <input type="number" min="1" value={roleSetup.wolves} onChange={e => setRoleSetup({...roleSetup, wolves: parseInt(e.target.value) || 1})} style={styles.smallInput} /></label>
@@ -741,7 +723,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Thông Báo Vai Trò Của Người Chơi */}
         {myPlayerInfo?.role && (
           <div style={styles.roleBanner}>
             <span>🔒 Vai trò bí mật của bạn:</span>
@@ -755,14 +736,12 @@ export default function App() {
           </div>
         )}
 
-        {/* Thẻ Cảnh Báo Cho Linh Hồn (Đã Chết) */}
         {!isAlive && (
           <div style={styles.deadWarningBanner}>
             👻 Bạn đã qua đời! Bạn chỉ có thể quan sát diễn biến trận đấu và không thể nói/vote.
           </div>
         )}
 
-        {/* Bàn Chơi - Sơ Đồ 20 Ghế */}
         <main style={styles.seatsGrid}>
           {[...Array(20)].map((_, index) => {
             const seatNum = index + 1;
@@ -791,7 +770,6 @@ export default function App() {
           })}
         </main>
 
-        {/* Bảng Nhật Ký Trận Đấu */}
         {publicLogs.length > 0 && (
           <div style={styles.logContainer}>
             <h4 style={{ margin: '0 0 6px 0', color: '#38bdf8' }}>📜 Nhật Ký Diễn Biến Trận Đấu</h4>
@@ -803,7 +781,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Khung Chat Phe Sói Vào Ban Đêm */}
         {isNight && myPlayerInfo?.role === 'WOLF' && isAlive && (
           <div style={styles.chatBoxContainer}>
             <h4 style={{ margin: '0 0 8px 0', color: '#ef4444' }}>💬 Kênh Trò Chuyện Phe Sói</h4>
@@ -832,7 +809,7 @@ export default function App() {
   );
 }
 
-// Bảng CSS Inline đầy đủ
+// Bảng Styles Inline hoàn chỉnh
 const styles = {
   videoPlayerContainer: {
     width: '100%',
@@ -846,99 +823,96 @@ const styles = {
     right: '4px',
     zIndex: 5,
     fontSize: '9px',
-    padding: '2px 5px',
-    background: '#eab308',
-    border: 'none',
+    padding: '2px 6px',
+    background: 'rgba(0,0,0,0.7)',
+    color: '#fff',
+    border: '1px solid #475569',
     borderRadius: '4px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    color: '#000'
+    cursor: 'pointer'
   },
   lobbyContainer: {
-    backgroundColor: '#020617',
-    color: '#fff',
     minHeight: '100vh',
-    padding: '24px',
+    backgroundColor: '#0f172a',
+    color: '#f8fafc',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    padding: '20px',
+    fontFamily: 'sans-serif'
   },
   lobbyTitle: {
     fontSize: '24px',
     fontWeight: 'bold',
-    color: '#a855f7',
+    color: '#c084fc',
     marginBottom: '20px',
     textAlign: 'center'
   },
   lobbyForm: {
-    backgroundColor: '#0f172a',
+    background: '#1e293b',
     padding: '24px',
     borderRadius: '12px',
-    border: '1px solid #334155',
     width: '100%',
-    maxWidth: '650px',
+    maxWidth: '600px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '16px'
+    gap: '16px',
+    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)'
   },
   label: {
-    fontSize: '13px',
+    fontSize: '14px',
     color: '#94a3b8',
-    fontWeight: 'bold',
     marginBottom: '4px',
     display: 'block'
   },
   input: {
     width: '100%',
-    padding: '8px 12px',
-    backgroundColor: '#1e293b',
-    border: '1px solid #475569',
+    padding: '10px 12px',
+    background: '#0f172a',
+    border: '1px solid #334155',
     borderRadius: '6px',
     color: '#fff',
     fontSize: '14px',
-    boxSizing: 'border-box',
-    outline: 'none'
+    boxSizing: 'border-box'
   },
   smallInput: {
-    width: '45px',
-    padding: '2px 4px',
-    backgroundColor: '#1e293b',
+    width: '50px',
+    padding: '4px',
+    background: '#1e293b',
     border: '1px solid #475569',
     borderRadius: '4px',
     color: '#fff',
     fontSize: '12px',
-    marginLeft: '4px'
+    textAlign: 'center'
   },
   copyBtn: {
     padding: '8px 12px',
-    backgroundColor: '#334155',
+    background: '#334155',
     color: '#38bdf8',
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 'bold'
+    fontSize: '13px'
   },
   hostBox: {
     display: 'flex',
     justify: 'space-between',
     alignItems: 'center',
+    background: '#0f172a',
     padding: '12px',
-    backgroundColor: '#1e293b',
     borderRadius: '8px'
   },
   hostBtn: {
-    padding: '6px 12px',
+    padding: '8px 16px',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
-    fontSize: '13px',
-    fontWeight: 'bold'
+    fontWeight: 'bold',
+    fontSize: '13px'
   },
   seatGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat( auto-fill, minmax(110px, 1fr) )',
+    gridTemplateColumns: 'repeat(4, 1fr)',
     gap: '8px'
   },
   seatBtn: {
@@ -946,25 +920,25 @@ const styles = {
     borderRadius: '6px',
     fontSize: '12px',
     fontWeight: 'bold',
-    textAlign: 'center'
+    transition: 'all 0.2s'
   },
   submitBtn: {
-    width: '100%',
-    padding: '12px',
-    backgroundColor: '#9333ea',
+    padding: '14px',
+    background: '#9333ea',
     color: '#fff',
     border: 'none',
     borderRadius: '8px',
-    fontSize: '15px',
     fontWeight: 'bold',
+    fontSize: '16px',
     cursor: 'pointer',
     marginTop: '10px'
   },
   gameContainer: {
-    color: '#fff',
     minHeight: '100vh',
+    color: '#f8fafc',
     padding: '16px',
-    boxSizing: 'border-box',
+    fontFamily: 'sans-serif',
+    transition: 'background-color 0.5s ease',
     position: 'relative'
   },
   disconnectBanner: {
@@ -972,13 +946,13 @@ const styles = {
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#dc2626',
+    background: '#dc2626',
     color: '#fff',
     textAlign: 'center',
     padding: '6px',
+    zIndex: 1000,
     fontSize: '13px',
-    fontWeight: 'bold',
-    zIndex: 1000
+    fontWeight: 'bold'
   },
   nightEffectsOverlay: {
     position: 'fixed',
@@ -991,15 +965,16 @@ const styles = {
     justify: 'space-between',
     alignItems: 'center',
     padding: '12px 16px',
-    borderRadius: '10px',
-    border: '1px solid',
+    borderRadius: '8px',
+    borderWidth: '1px',
+    borderStyle: 'solid',
     marginBottom: '16px',
     flexWrap: 'wrap',
     gap: '12px'
   },
   leaveBtn: {
-    padding: '6px 10px',
-    backgroundColor: '#475569',
+    padding: '6px 12px',
+    background: '#475569',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
@@ -1007,15 +982,14 @@ const styles = {
     fontSize: '12px'
   },
   timerBadge: {
-    backgroundColor: '#3b82f6',
-    color: '#fff',
+    background: '#334155',
     padding: '2px 8px',
     borderRadius: '12px',
     fontSize: '12px'
   },
   copyBtnHeader: {
-    padding: '6px 10px',
-    backgroundColor: '#0284c7',
+    padding: '6px 12px',
+    background: '#0284c7',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
@@ -1031,15 +1005,15 @@ const styles = {
     fontWeight: 'bold'
   },
   hostControlPanel: {
-    backgroundColor: '#1e293b',
-    border: '1px solid #d97706',
+    background: '#1e293b',
+    border: '1px solid #f59e0b',
     padding: '14px',
-    borderRadius: '10px',
+    borderRadius: '8px',
     marginBottom: '16px'
   },
   hostActionBtn: {
     padding: '6px 12px',
-    backgroundColor: '#2563eb',
+    background: '#2563eb',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
@@ -1048,74 +1022,77 @@ const styles = {
     cursor: 'pointer'
   },
   roleBanner: {
-    backgroundColor: '#312e81',
-    border: '1px solid #6366f1',
+    background: '#2e1065',
+    border: '1px solid #7e22ce',
     padding: '10px 16px',
     borderRadius: '8px',
     marginBottom: '16px',
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    fontSize: '14px'
+    gap: '10px'
   },
   deadWarningBanner: {
-    backgroundColor: '#450a0a',
+    background: '#450a0a',
     border: '1px solid #991b1b',
     color: '#fca5a5',
     padding: '10px 16px',
     borderRadius: '8px',
     marginBottom: '16px',
-    fontSize: '13px',
-    textAlign: 'center'
+    fontSize: '13px'
   },
   seatsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat( auto-fill, minmax(140px, 1fr) )',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
     gap: '12px',
-    marginBottom: '20px'
+    marginBottom: '16px'
+  },
+  emptySeatCard: {
+    height: '140px',
+    border: '1px dashed #334155',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'rgba(15, 23, 42, 0.4)'
   },
   seatCard: {
+    height: '140px',
     borderRadius: '8px',
     padding: '8px',
     display: 'flex',
     flexDirection: 'column',
+    justify: 'space-between',
     alignItems: 'center',
-    boxSizing: 'border-box',
-    minHeight: '170px'
-  },
-  emptySeatCard: {
-    borderRadius: '8px',
-    border: '1px dashed #334155',
-    backgroundColor: '#0f172a',
-    padding: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '170px'
+    position: 'relative',
+    boxSizing: 'border-box'
   },
   seatBadge: {
     fontSize: '10px',
-    color: '#94a3b8',
-    fontWeight: 'bold'
+    background: '#334155',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    color: '#cbd5e1'
   },
   voteBadge: {
     fontSize: '10px',
-    backgroundColor: '#ca8a04',
-    color: '#fff',
-    padding: '1px 4px',
+    background: '#dc2626',
+    padding: '2px 6px',
     borderRadius: '4px',
+    color: '#fff',
     fontWeight: 'bold'
   },
   hostBadge: {
     fontSize: '10px',
-    color: '#f59e0b',
-    fontWeight: 'bold'
+    background: '#d97706',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    color: '#fff'
   },
   videoBox: {
     width: '100%',
-    height: '90px',
-    backgroundColor: '#020617',
-    borderRadius: '6px',
+    flex: 1,
+    background: '#020617',
+    borderRadius: '4px',
     overflow: 'hidden',
     position: 'relative',
     display: 'flex',
@@ -1125,89 +1102,83 @@ const styles = {
   deadOverlay: {
     position: 'absolute',
     inset: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    background: 'rgba(0,0,0,0.8)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     color: '#ef4444',
-    fontWeight: 'bold',
     fontSize: '12px',
+    fontWeight: 'bold',
     zIndex: 10
   },
   actionVoteBtn: {
     padding: '2px 6px',
-    backgroundColor: '#ca8a04',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '11px',
-    cursor: 'pointer',
-    fontWeight: 'bold'
-  },
-  actionIconBtn: {
-    padding: '3px 6px',
-    backgroundColor: '#2563eb',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '11px',
-    cursor: 'pointer'
-  },
-  roleActionBtn: {
-    width: '100%',
-    padding: '4px',
-    backgroundColor: '#2563eb',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '11px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    marginTop: '2px'
-  },
-  hostMicroBtn: {
-    flex: 1,
-    padding: '2px 4px',
-    backgroundColor: '#475569',
+    background: '#2563eb',
     color: '#fff',
     border: 'none',
     borderRadius: '4px',
     fontSize: '10px',
     cursor: 'pointer'
   },
+  actionIconBtn: {
+    padding: '2px 4px',
+    background: '#2563eb',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '10px',
+    cursor: 'pointer'
+  },
+  roleActionBtn: {
+    padding: '3px 6px',
+    background: '#2563eb',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '10px',
+    cursor: 'pointer',
+    width: '100%'
+  },
+  hostMicroBtn: {
+    padding: '2px 4px',
+    background: '#334155',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    fontSize: '9px',
+    cursor: 'pointer',
+    flex: 1
+  },
   logContainer: {
-    backgroundColor: '#0f172a',
-    border: '1px solid #1e293b',
-    borderRadius: '8px',
+    background: '#1e293b',
     padding: '12px',
-    marginBottom: '16px'
+    borderRadius: '8px',
+    marginBottom: '16px',
+    border: '1px solid #334155'
   },
   logBox: {
-    maxHeight: '120px',
+    maxHeight: '100px',
     overflowY: 'auto'
   },
   chatBoxContainer: {
-    backgroundColor: '#18181b',
-    border: '1px solid #7f1d1d',
-    borderRadius: '8px',
+    background: '#1e293b',
+    border: '1px solid #ef4444',
     padding: '12px',
-    marginTop: '16px'
+    borderRadius: '8px'
   },
   chatMessagesArea: {
-    maxHeight: '130px',
+    height: '120px',
     overflowY: 'auto',
-    backgroundColor: '#090d16',
+    background: '#0f172a',
     padding: '8px',
     borderRadius: '6px',
     fontSize: '13px'
   },
   sendChatBtn: {
     padding: '8px 16px',
-    backgroundColor: '#dc2626',
+    background: '#dc2626',
     color: '#fff',
     border: 'none',
     borderRadius: '6px',
-    fontSize: '13px',
     fontWeight: 'bold',
     cursor: 'pointer'
   }
