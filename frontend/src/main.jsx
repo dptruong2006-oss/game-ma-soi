@@ -17,48 +17,17 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ 
-          padding: '40px', 
-          textAlign: 'center', 
-          background: '#090d16', 
-          color: '#fff', 
-          minHeight: '100vh', 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          fontFamily: 'sans-serif'
-        }}>
-          <div style={{
-            background: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
-            padding: '30px',
-            borderRadius: '16px',
-            maxWidth: '450px',
-            boxShadow: '0 0 30px rgba(239, 68, 68, 0.2)'
-          }}>
-            <h2 style={{ color: '#ef4444', fontSize: '22px', marginBottom: '12px', fontWeight: 'bold' }}>
+        <div className="p-10 text-center bg-[#090d16] text-white min-h-screen flex flex-col justify-center items-center font-sans">
+          <div className="bg-red-500/10 border border-red-500/30 p-8 rounded-2xl max-w-[450px] shadow-[0_0_30px_rgba(239,68,68,0.2)]">
+            <h2 className="text-red-500 text-xl mb-3 font-bold">
               ⚠️ Màn đêm bất ổn - Lỗi giao diện!
             </h2>
-            <p style={{ color: '#94a3b8', marginBottom: '24px', fontSize: '14px', lineHeight: '1.5' }}>
+            <p className="text-slate-400 mb-6 text-sm leading-relaxed">
               Hệ thống kết nối hoặc hiển thị ván đấu vừa gặp sự cố gián đoạn. Vui lòng tải lại trang để quay lại bàn chơi ngay lập tức.
             </p>
             <button 
               onClick={() => window.location.reload()} 
-              style={{ 
-                padding: '12px 24px', 
-                background: 'linear-gradient(135deg, #7c3aed, #db2777)', 
-                color: '#fff', 
-                border: 'none', 
-                borderRadius: '8px', 
-                cursor: 'pointer', 
-                fontWeight: 'bold', 
-                fontSize: '15px',
-                boxShadow: '0 4px 15px rgba(124, 58, 237, 0.4)',
-                transition: 'transform 0.2s'
-              }}
-              onMouseOver={(e) => e.target.style.transform = 'scale(1.03)'}
-              onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg cursor-pointer font-bold text-sm shadow-[0_4px_15px_rgba(124,58,237,0.4)] transition-transform duration-200 hover:scale-105 active:scale-95"
             >
               🔄 Tải lại ván đấu
             </button>

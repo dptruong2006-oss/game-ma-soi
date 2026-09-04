@@ -38,7 +38,7 @@ const AgoraVideoPlayer = ({ videoTrack, audioTrack, isLocal }) => {
   }, [audioTrack, isLocal]);
 
   return (
-    <div ref={containerRef} style={styles.videoPlayerContainer}>
+    <div ref={containerRef} style={styles.videoPlayerContainer} className="agora-video-player">
       {!isLocal && audioTrack && (
         <button 
           onClick={() => audioTrack.play()} 
@@ -130,20 +130,20 @@ export default function App() {
 
   // Lắng nghe các sự kiện Socket
   useEffect(() => {
-    socket.on('connect', () => {
+    const handleConnect = () => {
       setIsConnected(true);
       if (hasJoined && roomId) {
         socket.emit('join_room', { roomId, name: playerName.trim(), seat: selectedSeat, isHost });
       }
-    });
+    };
 
-    socket.on('disconnect', () => setIsConnected(false));
+    const handleDisconnect = () => setIsConnected(false);
 
-    socket.on('timer_update', (data) => {
+    const handleTimerUpdate = (data) => {
       if (data && typeof data.timeLeft === 'number') setTimeLeft(data.timeLeft);
-    });
+    };
 
-    socket.on('room_state_update', (state) => {
+    const handleRoomStateUpdate = (state) => {
       if (state && state.phase && state.phase !== roomState.phase) {
         playSoundEffect(state.phase);
         if (state.phase === 'NIGHT') {
@@ -156,26 +156,34 @@ export default function App() {
       if (state && state.players) {
         setRoomState(state);
       }
-    });
+    };
 
-    socket.on('wolf_message_receive', (data) => {
+    const handleWolfMessage = (data) => {
       setWolfChatList(prev => [...prev, data]);
-    });
+    };
 
-    socket.on('seer_result', (data) => {
+    const handleSeerResult = (data) => {
       alert(`🔮 KẾT QUẢ TIÊN TRI (Ghế #${data.seat} - ${data.name}): ${data.isWolf ? '🐺 Là SÓI!' : '🛡️ Vô Tội!'}`);
-    });
+    };
 
-    socket.on('notification', (data) => alert(data.message));
+    const handleNotification = (data) => alert(data.message);
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('timer_update', handleTimerUpdate);
+    socket.on('room_state_update', handleRoomStateUpdate);
+    socket.on('wolf_message_receive', handleWolfMessage);
+    socket.on('seer_result', handleSeerResult);
+    socket.on('notification', handleNotification);
 
     return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('timer_update');
-      socket.off('room_state_update');
-      socket.off('wolf_message_receive');
-      socket.off('seer_result');
-      socket.off('notification');
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('timer_update', handleTimerUpdate);
+      socket.off('room_state_update', handleRoomStateUpdate);
+      socket.off('wolf_message_receive', handleWolfMessage);
+      socket.off('seer_result', handleSeerResult);
+      socket.off('notification', handleNotification);
     };
   }, [roomState.phase, hasJoined, roomId, playerName, selectedSeat, isHost]);
 
@@ -215,10 +223,12 @@ export default function App() {
     localTracks.videoTrack.setEnabled(canCam && isVideoOn);
   }, [myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
 
-  // Khởi tạo và tham gia kênh Agora Video/Audio
+  // Khởi tạo và tham gia kênh Agora Video/Audio (Tối ưu Cleanup)
   useEffect(() => {
     if (!hasJoined) return;
     let isMounted = true;
+    let createdAudioTrack = null;
+    let createdVideoTrack = null;
 
     const initAgora = async () => {
       try {
@@ -240,16 +250,18 @@ export default function App() {
         const data = await res.json();
         await agoraClient.join(AGORA_APP_ID, roomId, data.token, socket.id);
 
-        let audioTrack = null, videoTrack = null;
-        try { audioTrack = await AgoraRTC.createMicrophoneAudioTrack(); } catch (e) { setIsMicOn(false); }
-        try { videoTrack = await AgoraRTC.createCameraVideoTrack(); } catch (e) { setIsVideoOn(false); }
+        try { createdAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(); } catch (e) { setIsMicOn(false); }
+        try { createdVideoTrack = await AgoraRTC.createCameraVideoTrack(); } catch (e) { setIsVideoOn(false); }
 
         if (isMounted) {
-          setLocalTracks({ audioTrack, videoTrack });
+          setLocalTracks({ audioTrack: createdAudioTrack, videoTrack: createdVideoTrack });
           const tracks = [];
-          if (audioTrack) tracks.push(audioTrack);
-          if (videoTrack) tracks.push(videoTrack);
+          if (createdAudioTrack) tracks.push(createdAudioTrack);
+          if (createdVideoTrack) tracks.push(createdVideoTrack);
           if (tracks.length > 0) await agoraClient.publish(tracks);
+        } else {
+          createdAudioTrack?.close();
+          createdVideoTrack?.close();
         }
       } catch (err) {
         console.error("Lỗi kết nối Agora RTC:", err);
@@ -261,6 +273,11 @@ export default function App() {
     return () => {
       isMounted = false;
       agoraClient.removeAllListeners();
+      if (createdAudioTrack) createdAudioTrack.close();
+      if (createdVideoTrack) createdVideoTrack.close();
+      agoraClient.leave().catch(() => {});
+      setRemoteUsers([]);
+      setLocalTracks({ audioTrack: null, videoTrack: null });
     };
   }, [hasJoined, roomId]);
 
@@ -282,6 +299,8 @@ export default function App() {
     } catch (e) {}
     setHasJoined(false);
     setIsHost(false);
+    setLocalTracks({ audioTrack: null, videoTrack: null });
+    setRemoteUsers([]);
   };
 
   const copyInviteLink = () => {
@@ -399,11 +418,16 @@ export default function App() {
 
   // MÀN HÌNH BÀN CHƠI CHÍNH
   return (
-    <div style={{
-      ...styles.gameContainer,
-      backgroundColor: isNight ? '#090d16' : '#0f172a',
-    }}>
-      
+    <div 
+      className={isShaking ? "card-shake" : ""}
+      style={{
+        ...styles.gameContainer,
+        backgroundColor: isNight ? '#090d16' : '#0f172a',
+      }}
+    >
+      {/* HIỆU ỨNG CHÉM SÓI / LÊN BAN ĐÊM */}
+      {isSlashing && <div className="slash-effect" />}
+
       {!isConnected && (
         <div style={styles.disconnectBanner}>
           ⚠️ Mất kết nối với máy chủ! Đang tự động kết nối lại...
@@ -412,6 +436,8 @@ export default function App() {
 
       {isNight && (
         <div style={styles.nightEffectsOverlay}>
+          <div className="night-blood-overlay" />
+          <div className="lightning-effect" />
           <audio ref={laughAudioRef} loop src="https://actions.google.com/sounds/v1/horror/evil_laugh.ogg" />
           <audio ref={windAudioRef} loop src="https://actions.google.com/sounds/v1/ambiences/creepy_wind.ogg" />
         </div>
@@ -603,7 +629,7 @@ export default function App() {
 
         {/* KÊNH CHAT RIÊNG DÀNH CHO SÓI VÀO BAN ĐÊM */}
         {isNight && myPlayerInfo?.role === 'WOLF' && (
-          <div style={styles.chatBoxContainer}>
+          <div style={styles.chatBoxContainer} className="wolf-chat-container">
             <h4 style={{ margin: '0 0 8px 0', color: '#ef4444' }}>💬 Trò chuyện Phe Sói Ban Đêm</h4>
             <div style={styles.chatMessagesArea}>
               {wolfChatList.map((msg, idx) => (
@@ -704,7 +730,7 @@ const styles = {
     padding: '12px 16px',
     borderRadius: '8px',
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center'
   },
   hostBtn: {
@@ -764,7 +790,7 @@ const styles = {
   },
   header: {
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: '20px',
     padding: '16px',
