@@ -255,8 +255,14 @@ export default function App() {
 
   const playersMap = {};
   if (roomData?.players) {
-    Object.values(roomData.players).forEach(p => {
-      if (p.seat) playersMap[p.seat] = p;
+    const playerArray = Array.isArray(roomData.players) 
+      ? roomData.players 
+      : Object.values(roomData.players);
+
+    playerArray.forEach(p => {
+      if (p && p.seat) {
+        playersMap[parseInt(p.seat, 10)] = p;
+      }
     });
   }
 
@@ -297,6 +303,7 @@ export default function App() {
           <span style={{ fontSize: '13px', color: isNight ? '#38bdf8' : '#fbbf24' }}>
             {isNight ? '🌙 ĐÊM (Sói hành động, Dân im lặng)' : '☀️ BAN NGÀY (Thảo luận & Treo cổ)'} | Còn lại: <b>{timeLeft}s</b>
           </span>
+
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button style={{ ...styles.btnMedia, background: micOn ? '#10b981' : '#ef4444' }} onClick={toggleMic}>{micOn ? '🎤 Mic Bật' : '🔇 Mic Tắt'}</button>
