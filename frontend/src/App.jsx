@@ -5,7 +5,6 @@ import AgoraRTC from 'agora-rtc-sdk-ng';
 const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:10000' : '';
 const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-// Danh sách bộ nhân vật chuẩn Ma Sói nâng cao
 const ROLES_CONFIG = {
   WOLF: { name: 'Ma Sói 🐺', team: 'Phe Sói', ability: 'Thức dậy ban đêm cùng đồng đội để chọn cắn một người chơi.' },
   VILLAGER: { name: 'Dân Làng 🧑', team: 'Phe Dân', ability: 'Không có kỹ năng đặc biệt, dùng lý luận ban ngày để tìm Sói.' },
@@ -30,17 +29,14 @@ export default function App() {
   const [notification, setNotification] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
 
-  // Kênh chat riêng của Sói ban đêm
   const [wolfChatOpen, setWolfChatOpen] = useState(false);
   const [wolfMessages, setWolfMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
 
-  // Kênh chat/thoại dành riêng cho người chết
   const [ghostChatOpen, setGhostChatOpen] = useState(false);
   const [ghostMessages, setGhostMessages] = useState([]);
   const [ghostInput, setGhostInput] = useState('');
 
-  // Trạng thái Media & Âm thanh
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const localAudioTrack = useRef(null);
@@ -80,9 +76,8 @@ export default function App() {
           setMyRoleKey(me.role);
           setMyRoleInfo(ROLES_CONFIG[me.role] || me.roleInfo);
         }
-
         if (localAudioTrack.current) {
-          const allowedToSpeak = me.isAlive ? (room.phase !== 'NIGHT') : true; 
+          const allowedToSpeak = me.isAlive ? (room.phase !== 'NIGHT') : true;
           localAudioTrack.current.setEnabled(allowedToSpeak && micOn);
         }
       }
@@ -255,15 +250,28 @@ export default function App() {
 
   const playersMap = {};
   if (roomData?.players) {
-    const playerArray = Array.isArray(roomData.players) 
-      ? roomData.players 
-      : Object.values(roomData.players);
-
-    playerArray.forEach(p => {
-      if (p && p.seat) {
-        playersMap[parseInt(p.seat, 10)] = p;
+    const playerArray = Array.isArray(roomData.players) ? roomData.players : Object.values(roomData.players);
+    playerArray.forEach((p, index) => {
+      if (p) {
+        const assignedSeat = parseInt(p.seat || p.seatNumber || p.position || (index + 1), 10);
+        playersMap[assignedSeat] = {
+          ...p,
+          isAlive: p.isAlive !== undefined ? p.isAlive : true,
+          name: p.name || p.username || `Người chơi ${index + 1}`
+        };
       }
     });
+  }
+
+  const myCurrentSeat = parseInt(seat, 10);
+  if (!playersMap[myCurrentSeat] && name) {
+    playersMap[myCurrentSeat] = {
+      id: socket?.id,
+      socketId: socket?.id,
+      name: name,
+      isAlive: true,
+      isHost: isHost
+    };
   }
 
   return (
@@ -303,7 +311,6 @@ export default function App() {
           <span style={{ fontSize: '13px', color: isNight ? '#38bdf8' : '#fbbf24' }}>
             {isNight ? '🌙 ĐÊM (Sói hành động, Dân im lặng)' : '☀️ BAN NGÀY (Thảo luận & Treo cổ)'} | Còn lại: <b>{timeLeft}s</b>
           </span>
-
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button style={{ ...styles.btnMedia, background: micOn ? '#10b981' : '#ef4444' }} onClick={toggleMic}>{micOn ? '🎤 Mic Bật' : '🔇 Mic Tắt'}</button>
@@ -338,7 +345,7 @@ export default function App() {
         {[...Array(20)].map((_, i) => {
           const seatNum = i + 1;
           const p = playersMap[seatNum];
-          const isMe = p && (p.id === socket?.id || p.socketId === socket?.id);
+          const isMe = p && (p.id === socket?.id || p.socketId === socket?.id || p.name === name);
 
           return (
             <div 
@@ -360,7 +367,7 @@ export default function App() {
               <div style={styles.videoArea}>
                 {p ? (
                   <>
-                    <div id={isMe ? 'my-local-video' : `remote-video-${p.uid}`} style={{ width: '100%', height: '100%', background: '#000' }} />
+                    <div id={isMe ? 'my-local-video' : `remote-video-${p.uid || seatNum}`} style={{ width: '100%', height: '100%', background: '#000' }} />
                     <div style={styles.nameTag}>
                       {p.name} {p.isHost ? '👑' : ''} {isMe && myRoleKey ? `[${ROLES_CONFIG[myRoleKey]?.name || myRoleKey}]` : ''}
                     </div>

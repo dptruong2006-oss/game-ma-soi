@@ -15,8 +15,14 @@ const io = new Server(server, {
 });
 
 // Lưu trữ trạng thái các phòng chơi
-// Cấu trúc mỗi phòng: { roomId, hostId, phase, timeLeft, players: {}, roleSetup: {} }
 const rooms = {};
+
+// API tạo token giả lập / đơn giản cho Agora RTC theo channelName
+app.get('/api/agora-token', (req, res) => {
+  const channelName = req.query.channelName || 'test-channel';
+  // Trả về token null hoặc chuỗi token tùy chỉnh nếu dùng cơ chế app certificate của Agora
+  res.json({ token: null, channel: channelName });
+});
 
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
@@ -32,26 +38,31 @@ io.on('connection', (socket) => {
         phase: 'LOBBY',
         timeLeft: 0,
         players: {},
-        roleSetup: {}
+        roleSetup: {},
+        nightActions: {
+          wolfTarget: null,
+          guardTarget: null,
+          witchHeal: null,
+          witchKill: null,
+          seerTarget: null
+        },
+        votes: {}
       };
     }
 
     const room = rooms[roomId];
 
-    // Nếu người đầu tiên vào phòng tự động làm Host nếu chưa có ai
     if (!room.hostId && isHost) {
       room.hostId = socket.id;
     }
 
-    // Lưu thông tin người chơi
     room.players[socket.id] = {
       id: socket.id,
+      socketId: socket.id,
       name: name || `Khách_${socket.id.substr(0,4)}`,
       seat: parseInt(seat) || 1,
       isHost: room.hostId === socket.id,
-      status: 'Alive',
-      canSpeak: true,
-      canCam: true,
+      isAlive: true,
       role: null,
       roleInfo: null
     };
@@ -59,8 +70,8 @@ io.on('connection', (socket) => {
     updateRoomData(roomId);
   });
 
-  // 2. Xử lý Quản Trò bắt đầu ván chơi và nhận roleSetup đầy đủ từ client
-  socket.on('start_game', ({ roomId, roleSetup }) => {
+  // 2. Xử lý Quản Trò bắt đầu ván chơi
+  socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room) return;
 
@@ -69,25 +80,24 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Lưu cấu hình role và thời gian
-    room.roleSetup = roleSetup || {
+    room.roleSetup = {
       wolves: 2, guards: 1, seers: 1, witches: 1, hunters: 1, idiots: 1,
       dayDuration: 120, nightDuration: 60
     };
 
     room.phase = 'NIGHT';
     room.timeLeft = room.roleSetup.nightDuration;
+    room.nightActions = { wolfTarget: null, guardTarget: null, witchHeal: null, witchKill: null, seerTarget: null };
+    room.votes = {};
 
-    // Phân vai trò ngẫu nhiên cho người chơi trong phòng (Bỏ qua Quản Trò)
     assignRoles(room);
 
-    // Gửi trạng thái mới nhất cho toàn bộ client trong phòng
     io.to(roomId).emit('room_state_update', room);
     updateRoomData(roomId);
-    io.to(roomId).emit('notification', { message: 'Ván chơi đã bắt đầu! Đã chuyển sang pha Ban Đêm.' });
+    io.to(roomId).emit('notification', { message: '🐺 Ván chơi đã bắt đầu! Đã chuyển sang pha Ban Đêm.' });
   });
 
-  // 3. Xử lý chuyển đổi pha (Ngày / Đêm)
+  // 3. Xử lý chuyển đổi pha (Ngày / Đêm / Vote)
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -102,13 +112,56 @@ io.on('connection', (socket) => {
       room.timeLeft = room.roleSetup.dayDuration || 120;
     } else if (phase === 'NIGHT') {
       room.timeLeft = room.roleSetup.nightDuration || 60;
+      room.nightActions = { wolfTarget: null, guardTarget: null, witchHeal: null, witchKill: null, seerTarget: null };
+    } else if (phase === 'VOTE') {
+      room.votes = {};
     }
 
     io.to(roomId).emit('room_state_update', room);
-    io.to(roomId).emit('notification', { message: `Quản trò đã chuyển sang pha: ${phase === 'DAY' ? 'Ban Ngày' : 'Ban Đêm'}` });
+    io.to(roomId).emit('notification', { message: `🔔 Quản trò đã chuyển sang pha: ${phase === 'DAY' ? 'Ban Ngày' : phase === 'NIGHT' ? 'Ban Đêm' : 'Bỏ Phiếu Kín'}` });
   });
 
-  // 4. Xử lý xóa phiếu bầu
+  // 4. Xử lý kỹ năng ban đêm
+  socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const player = room.players[socket.id];
+    if (!player || !player.isAlive) return;
+
+    if (actionType === 'WOLF' && player.role === 'WOLF') {
+      room.nightActions.wolfTarget = targetSeat;
+      io.to(roomId).emit('notification', { message: `🐺 Sói đã chọn mục tiêu cắn trong đêm.` });
+    } else if (actionType === 'GUARD' && player.role === 'GUARD') {
+      room.nightActions.guardTarget = targetSeat;
+      io.to(roomId).emit('notification', { message: `🛡️ Bảo vệ đã chọn người che chở.` });
+    } else if (actionType === 'SEER' && player.role === 'SEER') {
+      const targetPlayer = Object.values(room.players).find(p => parseInt(p.seat) === parseInt(targetSeat));
+      if (targetPlayer) {
+        const isWolf = targetPlayer.role === 'WOLF';
+        socket.emit('seer_result', { seat: targetSeat, name: targetPlayer.name, isWolf });
+      }
+    } else if (actionType === 'WITCH_HEAL' && player.role === 'WITCH') {
+      room.nightActions.witchHeal = targetSeat;
+      io.to(roomId).emit('notification', { message: `🧪 Phù thủy đã sử dụng bình cứu.` });
+    } else if (actionType === 'WITCH_KILL' && player.role === 'WITCH') {
+      room.nightActions.witchKill = targetSeat;
+      io.to(roomId).emit('notification', { message: `🧪 Phù thủy đã sử dụng bình độc.` });
+    }
+  });
+
+  // 5. Xử lý bỏ phiếu ban ngày
+  socket.on('cast_vote', ({ roomId, targetSeat }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+    const player = room.players[socket.id];
+    if (!player || !player.isAlive) return;
+
+    room.votes[socket.id] = targetSeat;
+    io.to(roomId).emit('notification', { message: `🗳️ ${player.name} đã bỏ phiếu!` });
+  });
+
+  // 6. Xử lý xóa phiếu bầu
   socket.on('clear_votes', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -118,10 +171,22 @@ io.on('connection', (socket) => {
       return;
     }
 
-    io.to(roomId).emit('notification', { message: 'Quản trò đã làm sạch danh sách phiếu bầu vòng này.' });
+    room.votes = {};
+    io.to(roomId).emit('room_state_update', room);
+    io.to(roomId).emit('notification', { message: '🧹 Quản trò đã làm sạch danh sách phiếu bầu vòng này.' });
   });
 
-  // 5. Ngắt kết nối
+  // 7. Kênh Chat Sói
+  socket.on('send_wolf_chat', ({ roomId, message, sender }) => {
+    io.to(roomId).emit('receive_wolf_chat', { sender, message });
+  });
+
+  // 8. Kênh Chat Âm Phủ
+  socket.on('send_ghost_chat', ({ roomId, message, sender }) => {
+    io.to(roomId).emit('receive_ghost_chat', { sender, message });
+  });
+
+  // 9. Ngắt kết nối
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
     for (const roomId in rooms) {
@@ -129,7 +194,6 @@ io.on('connection', (socket) => {
       if (room.players[socket.id]) {
         delete room.players[socket.id];
         
-        // Nếu host thoát, chuyển quyền host cho người chơi đầu tiên còn lại
         if (room.hostId === socket.id) {
           const remainingPlayers = Object.values(room.players);
           if (remainingPlayers.length > 0) {
@@ -146,29 +210,21 @@ io.on('connection', (socket) => {
   });
 });
 
-// Hàm hỗ trợ cập nhật danh sách ghế ngồi và player gửi về client
 function updateRoomData(roomId) {
   const room = rooms[roomId];
   if (!room) return;
 
   const playerList = Object.values(room.players);
-  // Ép kiểu seat về số nguyên để client so sánh khớp tuyệt đối
   const takenSeats = playerList.map(p => parseInt(p.seat));
 
-  io.to(roomId).emit('room_update', {
-    playerList,
-    takenSeats
-  });
+  io.to(roomId).emit('room_update', { playerList, takenSeats });
   io.to(roomId).emit('room_state_update', room);
 }
 
-// Hàm phân vai trò ngẫu nhiên dựa trên roleSetup (Loại bỏ Host ra khỏi danh sách nhận role chơi)
 function assignRoles(room) {
-  // Lọc chỉ lấy những người chơi không phải là Host để chia bài
-  const activePlayers = Object.values(room.players).filter(p => !p.isHost);
+  const activePlayers = Object.values(room.players);
   const setup = room.roleSetup;
 
-  // Tạo danh sách các role cần phân chia
   let rolePool = [];
   for (let i = 0; i < (setup.wolves || 0); i++) rolePool.push('WOLF');
   for (let i = 0; i < (setup.guards || 0); i++) rolePool.push('GUARD');
@@ -177,23 +233,15 @@ function assignRoles(room) {
   for (let i = 0; i < (setup.hunters || 0); i++) rolePool.push('HUNTER');
   for (let i = 0; i < (setup.idiots || 0); i++) rolePool.push('IDIOT');
 
-  // Xáo trộn danh sách role ngẫu nhiên
-  rolePool.sort(() => Math.random() - 0.5);
+  while (rolePool.length < activePlayers.length) {
+    rolePool.push('VILLAGER');
+  }
 
-  const roleDefinitions = {
-    WOLF: { name: 'Ma Sói', team: 'Phe Sói', objective: 'Tiêu diệt toàn bộ dân làng để giành chiến thắng.', ability: 'Thức dậy ban đêm cùng đồng đội để chọn nạn nhân.' },
-    GUARD: { name: 'Bảo Vệ', team: 'Phe Dân Làng', objective: 'Bảo vệ dân làng trước sự tấn công của Ma Sói.', ability: 'Chọn một người chơi để bảo vệ mỗi đêm.' },
-    SEER: { name: 'Tiên Tri', team: 'Phe Dân Làng', objective: 'Tìm ra kẻ giả mạo và ma sói trong làng.', ability: 'Soi thân phận một người chơi bất kỳ vào ban đêm.' },
-    WITCH: { name: 'Phù Thủy', team: 'Phe Dân Làng', objective: 'Sử dụng bình dược cứu người hoặc tiêu diệt kẻ xấu.', ability: 'Có 1 bình cứu và 1 bình độc.' },
-    HUNTER: { name: 'Thợ Săn', team: 'Phe Dân Làng', objective: 'Kéo theo một kẻ khác xuống mồ khi chết.', ability: 'Có thể kéo theo một người khi bị hạ sát.' },
-    IDIOT: { name: 'Thần Khờ', team: 'Phe Dân Làng', objective: 'Sống sót và che giấu thân phận.', ability: 'Miễn chết một lần khi bị treo cổ ban ngày.' },
-    VILLAGER: { name: 'Dân Làng', team: 'Phe Dân Làng', objective: 'Tìm ra Ma Sói thông qua suy luận và biểu quyết.', ability: 'Bỏ phiếu treo cổ nghi phạm ban ngày.' }
-  };
+  rolePool.sort(() => Math.random() - 0.5);
 
   activePlayers.forEach((player, index) => {
     const roleKey = rolePool[index] || 'VILLAGER';
     player.role = roleKey;
-    player.roleInfo = roleDefinitions[roleKey] || roleDefinitions['VILLAGER'];
   });
 }
 
