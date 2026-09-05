@@ -339,6 +339,7 @@ io.on('connection', (socket) => {
 
     roles = shuffleArray(roles);
 
+    playerList.push(...) // (giữ nguyên logic phân vai cũ)
     playerList.forEach((p, idx) => {
       const assignedRole = roles[idx];
       room.players[p.id].role = assignedRole;
@@ -434,6 +435,6 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server Ma Sói nâng cao chạy tại port ${PORT}`);
 });
