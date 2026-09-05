@@ -78,7 +78,7 @@ io.on('connection', (socket) => {
     room.phase = 'NIGHT';
     room.timeLeft = room.roleSetup.nightDuration;
 
-    // Phân vai trò ngẫu nhiên cho người chơi trong phòng
+    // Phân vai trò ngẫu nhiên cho người chơi trong phòng (Bỏ qua Quản Trò)
     assignRoles(room);
 
     // Gửi trạng thái mới nhất cho toàn bộ client trong phòng
@@ -152,7 +152,8 @@ function updateRoomData(roomId) {
   if (!room) return;
 
   const playerList = Object.values(room.players);
-  const takenSeats = playerList.map(p => p.seat);
+  // Ép kiểu seat về số nguyên để client so sánh khớp tuyệt đối
+  const takenSeats = playerList.map(p => parseInt(p.seat));
 
   io.to(roomId).emit('room_update', {
     playerList,
@@ -161,9 +162,10 @@ function updateRoomData(roomId) {
   io.to(roomId).emit('room_state_update', room);
 }
 
-// Hàm phân vai trò ngẫu nhiên dựa trên roleSetup
+// Hàm phân vai trò ngẫu nhiên dựa trên roleSetup (Loại bỏ Host ra khỏi danh sách nhận role chơi)
 function assignRoles(room) {
-  const players = Object.values(room.players);
+  // Lọc chỉ lấy những người chơi không phải là Host để chia bài
+  const activePlayers = Object.values(room.players).filter(p => !p.isHost);
   const setup = room.roleSetup;
 
   // Tạo danh sách các role cần phân chia
@@ -188,7 +190,7 @@ function assignRoles(room) {
     VILLAGER: { name: 'Dân Làng', team: 'Phe Dân Làng', objective: 'Tìm ra Ma Sói thông qua suy luận và biểu quyết.', ability: 'Bỏ phiếu treo cổ nghi phạm ban ngày.' }
   };
 
-  players.forEach((player, index) => {
+  activePlayers.forEach((player, index) => {
     const roleKey = rolePool[index] || 'VILLAGER';
     player.role = roleKey;
     player.roleInfo = roleDefinitions[roleKey] || roleDefinitions['VILLAGER'];
