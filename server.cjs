@@ -131,7 +131,7 @@ function updateMediaPermissions(room) {
     }
     if (!p.isAlive) {
       p.canSpeak = true;
-      p.canCam = true; // Hồn ma giao lưu với nhau
+      p.canCam = true;
       return;
     }
     if (isNight) {
@@ -313,7 +313,6 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomId);
   });
 
-  // Bắt đầu game và chia vai trò
   socket.on('start_game', ({ roomId, roleSetup }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
@@ -339,7 +338,6 @@ io.on('connection', (socket) => {
 
     roles = shuffleArray(roles);
 
-    playerList.push(...) // (giữ nguyên logic phân vai cũ)
     playerList.forEach((p, idx) => {
       const assignedRole = roles[idx];
       room.players[p.id].role = assignedRole;
@@ -359,7 +357,6 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('notification', { message: '🎮 Trận đấu bắt đầu! Kiểm tra kỹ năng nhân vật ở góc màn hình.' });
   });
 
-  // Host thay đổi pha thủ công
   socket.on('change_phase', ({ roomId, phase }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
@@ -372,7 +369,6 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('notification', { message: `⚙️ Quản trò đã đổi pha sang: ${phase}` });
   });
 
-  // Xóa vòng vote
   socket.on('clear_votes', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || !room.players[socket.id]?.isHost) return;
@@ -380,7 +376,6 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('notification', { message: '🧹 Quản trò đã làm mới lượt bỏ phiếu.' });
   });
 
-  // Hành động ban đêm
   socket.on('apply_night_action', ({ roomId, targetSeat, actionType }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -403,7 +398,6 @@ io.on('connection', (socket) => {
     broadcastRoomUpdate(roomId);
   });
 
-  // Vote ban ngày
   socket.on('cast_vote', ({ roomId, targetSeat }) => {
     const room = rooms[roomId];
     if (room && room.phase === 'VOTE') {
@@ -414,7 +408,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Chat riêng phe sói
   socket.on('send_wolf_chat', ({ roomId, message, sender }) => {
     io.to(roomId).emit('receive_wolf_chat', { sender, message });
   });
