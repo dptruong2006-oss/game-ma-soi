@@ -40,22 +40,38 @@ body {
 }
 
 /* ==========================================
-   2. KEYFRAMES & GPU ANIMATIONS
+   2. KEYFRAMES & GPU ANIMATIONS (NÂNG CẤP)
    ========================================== */
+
+/* Hiệu ứng rung giật mạnh khi trúng đòn / Sói cắn */
 @keyframes shake {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  20%, 60% { transform: translate3d(-4px, 4px, 0); }
-  40%, 80% { transform: translate3d(4px, -4px, 0); }
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  15% { transform: translate3d(-6px, 6px, 0) rotate(-1.5deg); }
+  30% { transform: translate3d(6px, -5px, 0) rotate(1.5deg); }
+  45% { transform: translate3d(-5px, -3px, 0) rotate(-1deg); }
+  60% { transform: translate3d(5px, 4px, 0) rotate(1deg); }
+  75% { transform: translate3d(-2px, -2px, 0) rotate(-0.5deg); }
 }
 
 .card-shake {
-  animation: shake 0.5s ease-in-out;
+  animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
   will-change: transform;
 }
 
+/* Hiệu ứng chém dao đẫm máu / hiệu ứng sát thương toàn màn hình */
 @keyframes fadeSlash {
-  0% { opacity: 1; transform: scale(1) translateZ(0); }
-  100% { opacity: 0; transform: scale(1.1) translateZ(0); }
+  0% { 
+    opacity: 1; 
+    transform: scale(0.95) translateZ(0); 
+    filter: hue-rotate(0deg) contrast(150%);
+  }
+  50% { 
+    opacity: 0.9; 
+  }
+  100% { 
+    opacity: 0; 
+    transform: scale(1.08) translateZ(0); 
+  }
 }
 
 .slash-effect {
@@ -64,67 +80,87 @@ body {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: linear-gradient(135deg, transparent 45%, rgba(239, 68, 68, 0.85) 50%, transparent 55%);
+  background: radial-gradient(circle at center, rgba(220, 38, 38, 0.4) 0%, rgba(127, 29, 29, 0.7) 45%, rgba(0, 0, 0, 0.85) 90%);
+  box-shadow: inset 0 0 100px rgba(239, 68, 68, 0.6);
   pointer-events: none;
   z-index: 999;
   will-change: transform, opacity;
-  animation: fadeSlash 0.8s forwards ease-out;
+  animation: fadeSlash 0.55s cubic-bezier(0.15, 0.85, 0.35, 1.2) forwards;
 }
 
-@keyframes lightning {
-  0%, 90%, 100% { opacity: 0; }
-  92%, 94% { opacity: 0.3; }
-  93% { opacity: 0.8; }
+/* Hiệu ứng chớp giật sấm sét ban đêm cực kỳ chân thực */
+@keyframes lightningFlash {
+  0%, 88%, 94%, 100% { 
+    opacity: 0; 
+    background: rgba(255, 255, 255, 0);
+  }
+  90% { 
+    opacity: 0.65; 
+    background: rgba(224, 242, 254, 0.35);
+  }
+  92% { 
+    opacity: 0.2; 
+    background: rgba(255, 255, 255, 0.15);
+  }
+  93% { 
+    opacity: 0.95; 
+    background: rgba(255, 255, 255, 0.5);
+  }
 }
 
 .lightning-effect {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.2);
   pointer-events: none;
-  opacity: 0;
-  will-change: opacity;
-  animation: lightning 5s infinite;
+  z-index: 5;
+  will-change: opacity, background;
+  animation: lightningFlash 6s infinite ease-in-out;
 }
 
+/* Hiệu ứng tỏa sáng hào quang cho thẻ của chính mình (Me Card) */
 @keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.4); }
-  50% { box-shadow: 0 0 18px rgba(168, 85, 247, 0.9); }
+  0%, 100% { 
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.3), inset 0 0 4px rgba(56, 189, 248, 0.2); 
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.75), inset 0 0 8px rgba(56, 189, 248, 0.4); 
+  }
 }
 
 .me-card-glow {
   will-change: box-shadow;
-  animation: pulseGlow 2s infinite;
+  animation: pulseGlow 2.5s infinite ease-in-out;
 }
 
-/* Hiệu ứng mờ/xám khi nhân vật bị loại */
+/* Hiệu ứng mờ/xám kết hợp ám khói khi nhân vật đã tử vong */
 .seat-card-dead {
-  filter: grayscale(85%) opacity(0.55);
+  filter: grayscale(90%) contrast(90%) opacity(0.45);
   transition: filter 0.4s ease, opacity 0.4s ease;
+  border-color: #450a0a !important;
 }
 
 /* ==========================================
    3. UI COMPONENTS & HOVER EFFECTS
    ========================================== */
 button {
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
   touch-action: manipulation;
   will-change: transform, filter;
 }
 
 button:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
+  filter: brightness(1.2);
+  transform: translateY(-2px);
 }
 
 button:active:not(:disabled) {
-  transform: translateY(0) scale(0.97);
-  filter: brightness(0.95);
+  transform: translateY(0) scale(0.96);
+  filter: brightness(0.9);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed !important;
 }
 
@@ -134,8 +170,8 @@ input {
 }
 
 input:focus {
-  border-color: #a855f7 !important;
-  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.2);
+  border-color: #c084fc !important;
+  box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.25);
 }
 
 /* ==========================================
@@ -149,7 +185,7 @@ input:focus {
   header {
     flex-direction: column;
     align-items: stretch !important;
-    gap: 8px;
+    gap: 10px;
   }
 
   .seat-grid-mobile {
@@ -164,7 +200,7 @@ input:focus {
   }
 }
 
-/* Tắt chuyển động nặng nếu thiết bị bật Reduced Motion */
+/* Tắt chuyển động nếu thiết bị người dùng bật chế độ giảm chuyển động (Accessibility) */
 @media (prefers-reduced-motion: reduce) {
   .card-shake,
   .slash-effect,

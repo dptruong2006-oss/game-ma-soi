@@ -1,507 +1,146 @@
-import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import AgoraRTC from 'agora-rtc-sdk-ng';
 
-const SOCKET_SERVER_URL = 'https://game-ma-soi.onrender.com';
-const AGORA_APP_ID = "f8b9cc77ff234823b6e4685127ebf475";
-
-// Khởi tạo Singleton Instances ngoài Render Loop
-const socket = io(SOCKET_SERVER_URL, { autoConnect: true });
+const socket = io(); // Hoặc cấu hình URL server của bạn
 const agoraClient = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-// Global Styles & Animations
+// Global Styles cho các hiệu ứng CSS (Lắc màn hình, Chém dao, Chớp giật, v.v.)
 const GlobalStyles = () => (
   <style>{`
     @keyframes shake {
-      0%, 100% { transform: translate(0, 0); }
-      20%, 60% { transform: translate(-5px, 5px); }
-      40%, 80% { transform: translate(5px, -5px); }
+      0% { transform: translate(1px, 1px) rotate(0deg); }
+      20% { transform: translate(-3px, 0px) rotate(-1deg); }
+      40% { transform: translate(1px, -1px) rotate(1deg); }
+      60% { transform: translate(-3px, 1px) rotate(0deg); }
+      80% { transform: translate(-1px, -1px) rotate(1deg); }
+      100% { transform: translate(1px, -2px) rotate(-1deg); }
     }
-    .card-shake { animation: shake 0.5s ease-in-out; }
-    
+    .card-shake {
+      animation: shake 0.5s;
+      animation-iteration-count: infinite;
+    }
     .slash-effect {
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: linear-gradient(135deg, transparent 45%, rgba(239, 68, 68, 0.8) 50%, transparent 55%);
-      pointer-events: none; z-index: 999; animation: fadeSlash 0.8s forwards;
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle, rgba(239,68,68,0.8) 0%, rgba(0,0,0,0) 70%);
+      pointer-events: none;
+      z-index: 999;
+      animation: flash 0.3s ease-out;
     }
-    @keyframes fadeSlash { 0% { opacity: 1; } 100% { opacity: 0; } }
-
-    .lightning-effect {
-      position: absolute; inset: 0; background: rgba(255, 255, 255, 0.15);
-      pointer-events: none; opacity: 0; animation: lightning 4s infinite;
-    }
-    @keyframes lightning {
-      0%, 90%, 100% { opacity: 0; }
-      92%, 94% { opacity: 0.8; }
+    @keyframes flash {
+      0% { opacity: 1; }
+      100% { opacity: 0; }
     }
   `}</style>
 );
 
-// Component Phát Video/Audio Agora
-const AgoraVideoPlayer = memo(({ videoTrack, audioTrack, isLocal }) => {
-  const containerRef = useRef(null);
+// Component hiển thị Thẻ Ghế Ngồi của từng người chơi
+function SeatCard({ seatNum, occupant, isMe, remoteUser, isNight, isDay, isHost, myRole, localTracks, isVideoOn, voteCount, socket }) {
+  const videoRef = useRef(null);
+  const [audioEnabled, setAudioEnabled] = useState(false);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !videoTrack) return;
-
-    try {
-      videoTrack.play(el);
-    } catch (e) {
-      console.error("Lỗi phát video Agora:", e);
-    }
-
-    return () => {
-      try {
-        if (videoTrack && videoTrack.isPlaying) {
-          videoTrack.stop();
-        }
-      } catch (e) {}
-    };
-  }, [videoTrack]);
-
-  useEffect(() => {
-    if (!isLocal && audioTrack) {
-      try {
-        if (!audioTrack.isPlaying) {
-          audioTrack.play();
-        }
-      } catch (e) {
-        console.error("Lỗi phát audio Agora:", e);
+    if (remoteUser && videoRef.current) {
+      if (remoteUser.videoTrack) {
+        remoteUser.videoTrack.play(videoRef.current);
+      }
+      if (remoteUser.audioTrack) {
+        remoteUser.audioTrack.play();
+        setAudioEnabled(true);
       }
     }
-  }, [audioTrack, isLocal]);
+  }, [remoteUser]);
 
-  return (
-    <div ref={containerRef} style={styles.videoPlayerContainer}>
-      {!isLocal && audioTrack && (
-        <button 
-          onClick={() => audioTrack.play()} 
-          style={styles.enableAudioBtn}
-        >
-          🔊 Mở âm thanh
-        </button>
-      )}
-    </div>
-  );
-});
+  useEffect(() => {
+    if (isMe && videoRef.current && localTracks.videoTrack) {
+      if (isVideoOn) {
+        localTracks.videoTrack.play(videoRef.current);
+      } else {
+        localTracks.videoTrack.stop();
+      }
+    }
+  }, [isMe, localTracks.videoTrack, isVideoOn]);
 
-// Component Thẻ Ghế Ngồi
-const SeatCard = memo(({ 
-  seatNum, occupant, isMe, remoteUser, isNight, isDay, isHost, myRole, localTracks, isVideoOn, voteCount, socket 
-}) => {
   if (!occupant) {
     return (
       <div style={styles.emptySeatCard}>
-        <span style={{ fontSize: '11px', color: '#64748b' }}>Ghế #{seatNum} (Trống)</span>
+        <span style={{ fontSize: '12px', color: '#475569' }}>Ghế {seatNum} (Trống)</span>
       </div>
     );
   }
 
-  const isAlive = occupant.isAlive !== false;
-
-  const canSeeStream = () => {
-    if (!isAlive) return false;
-    if (occupant.id === socket.id || isHost) return true;
-    if (isNight) {
-      return myRole === 'WOLF' && occupant.role === 'WOLF';
-    }
-    return true;
-  };
+  const isDead = occupant.status === 'DEAD';
 
   return (
-    <div 
-      style={{
-        ...styles.seatCard,
-        border: isMe ? '2px solid #a855f7' : (isAlive ? '1px solid #334155' : '1px solid #7f1d1d'),
-        opacity: isAlive ? 1 : 0.6,
-        background: isAlive ? '#0f172a' : '#18181b'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '4px' }}>
-        <span style={styles.seatBadge}>Ghế #{seatNum}</span>
-        {voteCount > 0 && isDay && (
-          <span style={styles.voteBadge}>🗳️ {voteCount} phiếu</span>
-        )}
+    <div style={{
+      ...styles.seatCard,
+      background: isMe ? '#1e293b' : '#0f172a',
+      border: isMe ? '2px solid #38bdf8' : '1px solid #334155'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+        <span style={styles.seatBadge}>Ghế {seatNum}</span>
+        {voteCount > 0 && <span style={styles.voteBadge}>🗳️ {voteCount}</span>}
         {occupant.isHost && <span style={styles.hostBadge}>👑 Host</span>}
       </div>
 
       <div style={styles.videoBox}>
-        {!isAlive && (
-          <div style={styles.deadOverlay}>
-            <span>👻 ĐÃ CHẾT</span>
-          </div>
-        )}
-
-        {isAlive && canSeeStream() ? (
-          isMe ? (
-            localTracks.videoTrack && isVideoOn ? (
-              <AgoraVideoPlayer videoTrack={localTracks.videoTrack} isLocal={true} />
-            ) : (
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Tắt Cam</span>
-            )
-          ) : (
-            remoteUser?.videoTrack ? (
-              <AgoraVideoPlayer videoTrack={remoteUser.videoTrack} audioTrack={remoteUser.audioTrack} isLocal={false} />
-            ) : (
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Chờ Cam</span>
-            )
-          )
-        ) : (
-          isAlive && (
-            <div style={{ color: '#64748b', fontSize: '11px', textAlign: 'center' }}>
-              🌙 Đang ngủ...
-            </div>
-          )
-        )}
+        <div ref={videoRef} style={styles.videoPlayerContainer} />
+        {isDead && <div style={styles.deadOverlay}>👻 ĐÃ CHẾT</div>}
       </div>
 
-      <div style={{ width: '100%', marginTop: '6px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90px' }}>
-            {occupant.name} {isMe ? "(Bạn)" : ""}
-          </span>
-
-          {isDay && isAlive && !isMe && (
-            <button 
-              onClick={() => socket.emit('cast_vote', { roomId: occupant.roomId, targetSeat: seatNum })} 
-              style={styles.actionVoteBtn}
-            >
-              🗳️ Vote
-            </button>
-          )}
-        </div>
-
-        {isNight && isAlive && (
-          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginTop: '4px' }}>
-            {isHost && (
-              <>
-                <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={styles.actionIconBtn} title="Bảo vệ">🛡️</button>
-                <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ ...styles.actionIconBtn, background: '#dc2626' }} title="Cắn">🐺</button>
-                <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ ...styles.actionIconBtn, background: '#9333ea' }} title="Soi">🔮</button>
-              </>
-            )}
-
-            {!isHost && myRole === 'GUARD' && (
-              <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'GUARD' })} style={styles.roleActionBtn}>🛡️ Bảo vệ</button>
-            )}
-            {!isHost && myRole === 'WOLF' && (
-              <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'WOLF' })} style={{ ...styles.roleActionBtn, background: '#dc2626' }}>🐺 Cắn</button>
-            )}
-            {!isHost && myRole === 'SEER' && (
-              <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'SEER_CHECK' })} style={{ ...styles.roleActionBtn, background: '#9333ea' }}>🔮 Soi</button>
-            )}
-            {!isHost && myRole === 'WITCH' && (
-              <button onClick={() => socket.emit('apply_night_action', { roomId: occupant.roomId, targetSeat: seatNum, actionType: 'WITCH_POISON' })} style={{ ...styles.roleActionBtn, background: '#16a34a' }}>🧪 Độc</button>
-            )}
-          </div>
-        )}
-
-        {isHost && !isMe && (
-          <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-            <button 
-              onClick={() => socket.emit('host_kick_player', { roomId: occupant.roomId, targetSocketId: occupant.id })}
-              style={styles.hostMicroBtn}
-            >
-              🚫 Đuổi
-            </button>
-            <button 
-              onClick={() => socket.emit('host_toggle_alive', { roomId: occupant.roomId, targetSeat: seatNum })}
-              style={{ ...styles.hostMicroBtn, background: isAlive ? '#b91c1c' : '#15803d' }}
-            >
-              {isAlive ? '💀 Giết' : '💖 Cứu'}
-            </button>
-          </div>
-        )}
+      <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f8fafc', textAlign: 'center', width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {occupant.name} {isMe && '(Bạn)'}
       </div>
     </div>
   );
-});
+}
 
 export default function App() {
   const [hasJoined, setHasJoined] = useState(false);
+  const [roomId, setRoomId] = useState('phong-123');
   const [playerName, setPlayerName] = useState('');
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [isHost, setIsHost] = useState(false);
+  const [existingHost, setExistingHost] = useState(null);
+  const [takenSeats, setTakenSeats] = useState([]);
   
-  const [isSlashing, setIsSlashing] = useState(false);
-  const [isShaking, setIsShaking] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(null);
   const [isConnected, setIsConnected] = useState(true);
+  const [isNight, setIsNight] = useState(false);
+  const [isDay, setIsDay] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [isShaking, setIsShaking] = useState(false);
+  const [isSlashing, setIsSlashing] = useState(false);
 
-  const [chatMessage, setChatMessage] = useState('');
-  const [wolfChatList, setWolfChatList] = useState([]);
-  const [publicLogs, setPublicLogs] = useState([]);
-
-  const [roleSetup, setRoleSetup] = useState({ wolves: 2, seers: 1, guards: 1, witches: 1 });
-
-  const [roomId, setRoomId] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('room') || 'phong-mac-dinh-123';
-  });
-
-  const [roomState, setRoomState] = useState({
-    phase: 'LOBBY',
-    players: {},
-    votes: {},
-  });
-
-  const [localTracks, setLocalTracks] = useState({ audioTrack: null, videoTrack: null });
+  const [playerList, setPlayerList] = useState([]);
   const [remoteUsers, setRemoteUsers] = useState([]);
+  const [myPlayerInfo, setMyPlayerInfo] = useState(null);
+  const [isAlive, setIsAlive] = useState(true);
+
   const [isMicOn, setIsMicOn] = useState(true);
   const [isVideoOn, setIsVideoOn] = useState(true);
+  const [localTracks, setLocalTracks] = useState({ audioTrack: null, videoTrack: null });
 
+  const [roleSetup, setRoleSetup] = useState({ wolves: 1, seers: 1, guards: 1, witches: 1 });
+  const [voteCounts, setVoteCounts] = useState({});
+  const [publicLogs, setPublicLogs] = useState([]);
+  const [wolfChatList, setWolfChatList] = useState([]);
+  const [chatMessage, setChatMessage] = useState('');
+
+  const chatScrollRef = useRef(null);
   const laughAudioRef = useRef(null);
   const windAudioRef = useRef(null);
-  const chatScrollRef = useRef(null);
-  const phaseRef = useRef(roomState.phase);
 
   useEffect(() => {
-    phaseRef.current = roomState.phase;
-  }, [roomState.phase]);
-
-  // Session recovery
-  useEffect(() => {
-    const savedSession = sessionStorage.getItem('ma_soi_session');
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession);
-        if (parsed.roomId && parsed.name && parsed.seat) {
-          setPlayerName(parsed.name);
-          setSelectedSeat(parsed.seat);
-          setIsHost(parsed.isHost || false);
-          setRoomId(parsed.roomId);
-          setHasJoined(true);
-          socket.emit('rejoin_room', parsed);
-        }
-      } catch (e) {
-        sessionStorage.removeItem('ma_soi_session');
-      }
-    }
-  }, []);
-
-  const playSoundEffect = useCallback((phase) => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      
-      if (phase === 'NIGHT') {
-        osc.frequency.setValueAtTime(120, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 1.5);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
-      } else {
-        osc.frequency.setValueAtTime(300, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 1);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1);
-      }
-      osc.start();
-      osc.stop(audioCtx.currentTime + 1.5);
-    } catch (e) {}
-  }, []);
-
-  useEffect(() => {
-    const url = new URL(window.location);
-    if (roomId) {
-      url.searchParams.set('room', roomId);
-      window.history.replaceState({}, '', url);
-    }
-  }, [roomId]);
-
-  const playerList = Object.values(roomState.players || {});
-  const existingHost = playerList.find(p => p.isHost === true);
-  const takenSeats = playerList.map(p => p.seat);
-  const myPlayerInfo = roomState.players[socket.id];
-  const isNight = roomState.phase === 'NIGHT';
-  const isDay = roomState.phase === 'DAY';
-  const isAlive = myPlayerInfo?.isAlive !== false;
-
-  const voteCounts = useMemo(() => {
-    const counts = {};
-    if (roomState.votes) {
-      Object.values(roomState.votes).forEach(targetSeat => {
-        counts[targetSeat] = (counts[targetSeat] || 0) + 1;
-      });
-    }
-    return counts;
-  }, [roomState.votes]);
-
-  useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-    }
-  }, [wolfChatList]);
-
-  // Event Listeners for Socket
-  useEffect(() => {
-    const handleConnect = () => setIsConnected(true);
-    const handleDisconnect = () => setIsConnected(false);
-    
-    const handleTimerUpdate = (data) => {
-      if (data && typeof data.timeLeft === 'number') setTimeLeft(data.timeLeft);
-    };
-
-    const handleRoomStateUpdate = (state) => {
-      if (state && state.phase && state.phase !== phaseRef.current) {
-        playSoundEffect(state.phase);
-        if (state.phase === 'NIGHT') {
-          setIsSlashing(true);
-          setIsShaking(true);
-          setTimeout(() => setIsSlashing(false), 900);
-          setTimeout(() => setIsShaking(false), 600);
-        }
-      }
-      if (state && state.players) {
-        setRoomState(state);
-      }
-    };
-
-    const handleWolfMessage = (data) => {
-      setWolfChatList(prev => [...prev, data]);
-    };
-
-    const handleSeerResult = (data) => {
-      alert(`🔮 KẾT QUẢ TIÊN TRI (Ghế #${data.seat} - ${data.name}): ${data.isWolf ? '🐺 Là SÓI!' : '🛡️ Vô Tội!'}`);
-    };
-
-    const handleNotification = (data) => {
-      if (data?.message) {
-        setPublicLogs(prev => [...prev, data.message]);
-        alert(data.message);
-      }
-    };
-
-    const handleKicked = () => {
-      alert("⚠️ Bạn đã bị Quản trò mời ra khỏi phòng!");
-      sessionStorage.removeItem('ma_soi_session');
-      window.location.reload();
-    };
-
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('timer_update', handleTimerUpdate);
-    socket.on('room_state_update', handleRoomStateUpdate);
-    socket.on('wolf_message_receive', handleWolfMessage);
-    socket.on('seer_result', handleSeerResult);
-    socket.on('notification', handleNotification);
-    socket.on('kicked_from_room', handleKicked);
+    // Lắng nghe các sự kiện Socket cơ bản ở đây
+    socket.on('room_update', (data) => {
+      if (data.playerList) setPlayerList(data.playerList);
+      if (data.takenSeats) setTakenSeats(data.takenSeats);
+      if (data.existingHost !== undefined) setExistingHost(data.existingHost);
+    });
 
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-      socket.off('timer_update', handleTimerUpdate);
-      socket.off('room_state_update', handleRoomStateUpdate);
-      socket.off('wolf_message_receive', handleWolfMessage);
-      socket.off('seer_result', handleSeerResult);
-      socket.off('notification', handleNotification);
-      socket.off('kicked_from_room', handleKicked);
-    };
-  }, [playSoundEffect]);
-
-  useEffect(() => {
-    if (isNight) {
-      if (laughAudioRef.current) laughAudioRef.current.play().catch(() => {});
-      if (windAudioRef.current) windAudioRef.current.play().catch(() => {});
-    } else {
-      if (laughAudioRef.current) {
-        laughAudioRef.current.pause();
-        laughAudioRef.current.currentTime = 0;
-      }
-      if (windAudioRef.current) {
-        windAudioRef.current.pause();
-        windAudioRef.current.currentTime = 0;
-      }
-    }
-  }, [isNight]);
-
-  useEffect(() => {
-    if (localTracks.audioTrack) {
-      const canSpeak = isAlive && (myPlayerInfo?.canSpeak !== false);
-      localTracks.audioTrack.setEnabled(canSpeak && isMicOn);
-    }
-  }, [isAlive, myPlayerInfo?.canSpeak, isMicOn, localTracks.audioTrack]);
-
-  useEffect(() => {
-    if (localTracks.videoTrack) {
-      const canCam = isAlive && (myPlayerInfo?.canCam !== false);
-      localTracks.videoTrack.setEnabled(canCam && isVideoOn);
-    }
-  }, [isAlive, myPlayerInfo?.canCam, isVideoOn, localTracks.videoTrack]);
-
-  // Agora WebRTC logic
-  useEffect(() => {
-    if (!hasJoined || !socket.id) return;
-    let isMounted = true;
-    let createdAudioTrack = null;
-    let createdVideoTrack = null;
-
-    const initAgora = async () => {
-      try {
-        agoraClient.on('user-published', async (user, mediaType) => {
-          await agoraClient.subscribe(user, mediaType);
-          if (isMounted) {
-            setRemoteUsers(prev => {
-              const exists = prev.find(u => String(u.uid) === String(user.uid));
-              return exists ? prev.map(u => String(u.uid) === String(user.uid) ? user : u) : [...prev, user];
-            });
-          }
-        });
-
-        agoraClient.on('user-left', (user) => {
-          if (isMounted) {
-            setRemoteUsers(prev => prev.filter(u => String(u.uid) !== String(user.uid)));
-          }
-        });
-
-        const res = await fetch(`${SOCKET_SERVER_URL}/api/agora-token?channelName=${roomId}&uid=${socket.id}`);
-        const data = await res.json();
-        
-        await agoraClient.join(AGORA_APP_ID, roomId, data.token || null, socket.id);
-
-        try { 
-          createdAudioTrack = await AgoraRTC.createMicrophoneAudioTrack(); 
-        } catch (e) { 
-          setIsMicOn(false); 
-        }
-
-        try { 
-          createdVideoTrack = await AgoraRTC.createCameraVideoTrack(); 
-        } catch (e) { 
-          setIsVideoOn(false); 
-        }
-
-        if (isMounted) {
-          setLocalTracks({ audioTrack: createdAudioTrack, videoTrack: createdVideoTrack });
-          const tracksToPublish = [];
-          if (createdAudioTrack) tracksToPublish.push(createdAudioTrack);
-          if (createdVideoTrack) tracksToPublish.push(createdVideoTrack);
-          
-          if (tracksToPublish.length > 0) {
-            await agoraClient.publish(tracksToPublish);
-          }
-        } else {
-          createdAudioTrack?.close();
-          createdVideoTrack?.close();
-        }
-      } catch (err) {
-        console.error("Lỗi kết nối Agora RTC:", err);
-      }
-    };
-
-    initAgora();
-
-    return () => {
-      isMounted = false;
-      agoraClient.removeAllListeners();
-      if (createdAudioTrack) createdAudioTrack.close();
-      if (createdVideoTrack) createdVideoTrack.close();
-      agoraClient.leave().catch(() => {});
-      setRemoteUsers([]);
-      setLocalTracks({ audioTrack: null, videoTrack: null });
+      socket.off('room_update');
     };
   }, [hasJoined, roomId]);
 
@@ -747,7 +386,6 @@ export default function App() {
             const seatNum = index + 1;
             const occupant = playerList.find(p => parseInt(p.seat) === seatNum);
             const isMe = occupant && occupant.id === socket.id;
-            
             const remoteUser = occupant ? remoteUsers.find(u => String(u.uid) === String(occupant.id)) : null;
 
             return (
@@ -817,19 +455,6 @@ const styles = {
     position: 'relative',
     objectFit: 'cover'
   },
-  enableAudioBtn: {
-    position: 'absolute',
-    bottom: '4px',
-    right: '4px',
-    zIndex: 5,
-    fontSize: '9px',
-    padding: '2px 6px',
-    background: 'rgba(0,0,0,0.7)',
-    color: '#fff',
-    border: '1px solid #475569',
-    borderRadius: '4px',
-    cursor: 'pointer'
-  },
   lobbyContainer: {
     minHeight: '100vh',
     backgroundColor: '#0f172a',
@@ -896,7 +521,7 @@ const styles = {
   },
   hostBox: {
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     background: '#0f172a',
     padding: '12px',
@@ -962,7 +587,7 @@ const styles = {
   },
   header: {
     display: 'flex',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px 16px',
     borderRadius: '8px',
@@ -1061,7 +686,7 @@ const styles = {
     padding: '8px',
     display: 'flex',
     flexDirection: 'column',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     position: 'relative',
     boxSizing: 'border-box'
@@ -1110,43 +735,6 @@ const styles = {
     fontSize: '12px',
     fontWeight: 'bold',
     zIndex: 10
-  },
-  actionVoteBtn: {
-    padding: '2px 6px',
-    background: '#2563eb',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '10px',
-    cursor: 'pointer'
-  },
-  actionIconBtn: {
-    padding: '2px 4px',
-    background: '#2563eb',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '10px',
-    cursor: 'pointer'
-  },
-  roleActionBtn: {
-    padding: '3px 6px',
-    background: '#2563eb',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '10px',
-    cursor: 'pointer',
-    width: '100%'
-  },
-  hostMicroBtn: {
-    padding: '2px 4px',
-    background: '#334155',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    fontSize: '9px',
-    cursor: 'pointer',
-    flex: 1
   },
   logContainer: {
     background: '#1e293b',
